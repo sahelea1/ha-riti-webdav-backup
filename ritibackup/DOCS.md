@@ -1,4 +1,4 @@
-# RitiBackup
+# RitiBackup — Documentation
 
 Home Assistant backups to **WebDAV**, **S3**, and **Backblaze B2** — use one or
 several at once — with **optional** on-device **ChaCha20-Poly1305** encryption,

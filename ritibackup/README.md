@@ -1,65 +1,34 @@
 # RitiBackup
 
-![Supports aarch64][aarch64-shield]
-![Supports amd64][amd64-shield]
-![Supports armhf][armhf-shield]
-![Supports armv7][armv7-shield]
-![Supports i386][i386-shield]
+<p align="center">
+  <img src="https://img.shields.io/badge/aarch64-yes-green.svg" alt="aarch64">
+  <img src="https://img.shields.io/badge/amd64-yes-green.svg" alt="amd64">
+  <img src="https://img.shields.io/badge/armhf-yes-green.svg" alt="armhf">
+  <img src="https://img.shields.io/badge/armv7-yes-green.svg" alt="armv7">
+  <img src="https://img.shields.io/badge/i386-yes-green.svg" alt="i386">
+</p>
 
-Home Assistant backups to **WebDAV**, **S3**, and **Backblaze B2** (use one or
-many) — with **optional** on-device **ChaCha20-Poly1305** encryption, an
-automatic every-N-days schedule, per-backend smart retention (keep your recent
-backups plus a fortnight archive), and one-click restore. A bundled standalone
-tool lets you recover encrypted backups even without Home Assistant.
+Home Assistant backups to **WebDAV**, **S3**, and **Backblaze B2** — use one or
+several at once — with **optional** on-device **ChaCha20-Poly1305** encryption,
+an automatic every-N-days schedule, per-backend smart retention, and one-click
+restore. A standalone tool lets you recover encrypted backups on any machine
+with Python, no Home Assistant needed.
 
-## Highlights
+## Features
 
-- ☁️ **Multiple backends** — WebDAV (Nextcloud, ownCloud, your NAS), **S3** and
-  S3-compatible providers (MinIO, Wasabi), and **Backblaze B2**. Enable one or
-  several; every backup uploads to all of them.
-- 🔐 **Optional on-device encryption** — flip on ChaCha20-Poly1305 to encrypt
-  backups before they leave the device, so your storage only ever holds
-  ciphertext. Off by default.
-- 🗝️ **ChaCha20-Poly1305 STREAM** with scrypt key derivation and a unique salt
-  per file.
-- ⏲️ **Automatic schedule** — every second day at 03:00 by default, fully
-  configurable, with catch-up for missed runs.
-- ♻️ **Per-backend smart retention** — keep the 4 newest backups plus one from
-  ~2 weeks ago on each backend (configurable; optional "bridge" mode keeps the
-  archive fresh).
-- ↩️ **One-click restore** — download, decrypt, verify, then import or fully
-  restore, all from a polished UI.
-- 🗂️ **Manage backups from the UI** — delete a single backup, clear all backups
-  on one or every backend, or upload a backup file from your computer (plain
-  `.tar` or encrypted `.tar.riti`) to the backend(s) of your choice.
-- 🛟 **Disaster recovery** — a dependency-light `riti-decrypt.py` recovers your
-  backups on any machine with Python.
+- ☁️ **Multiple backends** — WebDAV (Nextcloud, ownCloud, NAS), S3 / S3-compatible (MinIO, Wasabi), Backblaze B2. Enable one or all; every backup goes to every enabled backend.
+- 🔐 **Optional on-device encryption** — ChaCha20-Poly1305 STREAM with scrypt key derivation. Off by default; flip one switch to protect all future backups.
+- ⏲️ **Automatic schedule** — configurable interval (default: every 2 days at 03:00) with catch-up for missed runs.
+- ♻️ **Per-backend smart retention** — keep N recent backups plus an archive copy on each backend. No manual cleanup needed.
+- ↩️ **One-click restore** — pick a backup from the list, enter your passphrase, and the add-on handles everything: download, decrypt, verify, import.
+- 🗂️ **Full backup management** — delete single backups, clear all backups, or upload a file from your PC to any backend.
+- 🛟 **Disaster recovery** — `tools/riti-decrypt.py` decrypts backups on any machine with `pip install cryptography`.
 
 ## Quick start
 
-1. Add this repository to Home Assistant: **Settings → Add-ons → Add-on Store →
-   ⋮ → Repositories**, paste the repository URL, **Add**.
+1. Add this repository to Home Assistant: **Settings → Add-ons → Add-on Store → ⋮ → Repositories**, paste the repository URL, click **Add**.
 2. Install **RitiBackup** and open its **Configuration** tab.
-3. Enable at least one storage backend (WebDAV, S3, or B2) and fill in its
-   details. Optionally turn on `encryption_enabled` and set a strong
-   `encryption_passphrase` — **store that passphrase safely, it cannot be
-   recovered.**
-4. Start the addon and open the **Web UI**. Run **Backup now** to confirm
-   everything works, then let the schedule take over.
+3. Enable at least one backend and fill in its credentials. Optionally enable encryption and set a passphrase — **store it safely; it cannot be recovered.**
+4. Start the add-on and open the **Web UI**. Click **Backup now** to verify everything works, then let the schedule take over.
 
-See **DOCS.md** for full configuration, restore instructions, and the
-disaster-recovery workflow.
-
-## Why not just the built-in WebDAV backup?
-
-Home Assistant can use WebDAV as a backup location and can encrypt backups, but
-RitiBackup is for people who specifically want **ChaCha20-Poly1305** on-device
-encryption, an **every-second-day schedule with a keep-4 + fortnight-archive**
-retention policy, and a **standalone, HA-independent recovery tool** — packaged
-with a focused UI around exactly that workflow.
-
-[aarch64-shield]: https://img.shields.io/badge/aarch64-yes-green.svg
-[amd64-shield]: https://img.shields.io/badge/amd64-yes-green.svg
-[armhf-shield]: https://img.shields.io/badge/armhf-yes-green.svg
-[armv7-shield]: https://img.shields.io/badge/armv7-yes-green.svg
-[i386-shield]: https://img.shields.io/badge/i386-yes-green.svg
+See [DOCS.md](DOCS.md) for the full configuration reference and restore instructions.
