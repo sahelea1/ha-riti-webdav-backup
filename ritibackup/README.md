@@ -29,6 +29,9 @@ tool lets you recover encrypted backups even without Home Assistant.
   archive fresh).
 - ↩️ **One-click restore** — download, decrypt, verify, then import or fully
   restore, all from a polished UI.
+- 🗂️ **Manage backups from the UI** — delete a single backup, clear all backups
+  on one or every backend, or upload a backup file from your computer (plain
+  `.tar` or encrypted `.tar.riti`) to the backend(s) of your choice.
 - 🛟 **Disaster recovery** — a dependency-light `riti-decrypt.py` recovers your
   backups on any machine with Python.
 

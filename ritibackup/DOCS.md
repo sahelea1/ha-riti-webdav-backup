@@ -132,6 +132,51 @@ backup from about two weeks ago** — five files on the server at steady state.
 
 ---
 
+## Managing backups
+
+The **Remote backups** section of the web UI lists every backup across your
+enabled backends. Beyond restoring, you can delete, bulk-clear, and upload
+backups.
+
+### Delete a single backup
+
+Each entry has a **Delete** action that removes that one file from the backend
+it lives on (shown next to each entry). Other backends and other backups are
+untouched. The deletion is permanent.
+
+### Clear all backups
+
+Use **Clear** to delete **every** RitiBackup backup on a backend — pick a single
+backend, or choose **all enabled backends** to wipe them everywhere at once.
+
+> **This is irreversible.** Cleared backups cannot be recovered. Only files that
+> match RitiBackup's naming pattern (`.tar` / `.tar.riti`) are removed; unrelated
+> files in the same folder are left alone. If one backend fails, the others are
+> still cleared and the error is reported.
+
+### Upload a backup from your computer
+
+Use **Upload** to send a backup file from your PC to one or more backends so it
+appears in the list and can be restored later. This is handy for migrating
+backups onto new storage or seeding a fresh install.
+
+- **Accepted files:** both plain Home Assistant `.tar` backups and encrypted
+  RitiBackup `.tar.riti` containers. RitiBackup detects an already-encrypted file
+  automatically (by its `.tar.riti` name or its container header).
+- **Choose the destination:** select which enabled backend(s) to send the file
+  to (or all of them).
+- **Optional encryption:** when you upload a plain `.tar`, you can ask
+  RitiBackup to encrypt it on-device before upload (this requires an encryption
+  passphrase to be configured). Files that are already encrypted are uploaded
+  as-is.
+- The file is streamed to disk and uploaded without being loaded into memory, so
+  large backups work fine. Progress is shown in the live job panel.
+
+Once uploaded, the backup appears in **Remote backups** and can be restored like
+any other.
+
+---
+
 ## Restoring
 
 ### From the UI (easiest)

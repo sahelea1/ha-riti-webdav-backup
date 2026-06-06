@@ -315,6 +315,203 @@ class JobManager:
                         pass
                 self.state.add_history(history)
 
+    # --- DELETE / CLEAR / UPLOAD ----------------------------------------
+    def _enabled_backend(self, backend_name: str) -> Optional[StorageBackend]:
+        """Return the enabled backend whose ``.name`` matches, else None."""
+        for backend in build_backends(self.cfg):
+            if backend.name == backend_name:
+                return backend
+        return None
+
+    async def delete_one(self, name: str, backend_name: str) -> Dict[str, Any]:
+        """Delete a single backup file from one enabled backend."""
+        async with self._lock:
+            try:
+                backend = self._enabled_backend(backend_name)
+                if backend is None:
+                    return {
+                        "ok": False,
+                        "error": f"Backend '{backend_name}' not enabled",
+                    }
+                await backend.delete(name)
+                return {
+                    "ok": True,
+                    "deleted": True,
+                    "name": name,
+                    "backend": backend_name,
+                }
+            except (StorageError, Exception) as exc:  # noqa: BLE001
+                log.exception("Delete of %s on %s failed", name, backend_name)
+                return {"ok": False, "error": str(exc)}
+
+    async def clear_all(self, backend_name: Optional[str]) -> Dict[str, Any]:
+        """Delete all RitiBackup files on one or all enabled backends."""
+        async with self._lock:
+            self._begin("clear")
+            deleted = 0
+            errors: List[Dict[str, str]] = []
+            try:
+                all_backends = build_backends(self.cfg)
+                if backend_name in (None, "", "all"):
+                    targets = all_backends
+                else:
+                    match = next(
+                        (b for b in all_backends if b.name == backend_name), None
+                    )
+                    if match is None:
+                        self._end("failed", f"Backend '{backend_name}' not enabled")
+                        return {
+                            "ok": False,
+                            "error": f"Backend '{backend_name}' not enabled",
+                        }
+                    targets = [match]
+
+                for backend in targets:
+                    self._set(step=f"Clearing {backend.label}…")
+                    try:
+                        for f in await backend.list():
+                            if (
+                                parse_remote_time(f.name) is not None
+                                or is_encrypted_name(f.name)
+                            ):
+                                await backend.delete(f.name)
+                                deleted += 1
+                    except Exception as exc:  # noqa: BLE001
+                        log.exception("Clear on %s failed", backend.name)
+                        errors.append({"backend": backend.name, "error": str(exc)})
+
+                msg = f"Deleted {deleted} backup(s)"
+                if errors:
+                    msg += f"; {len(errors)} backend(s) errored"
+                self._end("success", msg)
+                return {"ok": True, "deleted": deleted, "errors": errors}
+            except Exception as exc:  # noqa: BLE001
+                log.exception("Clear failed")
+                self._end("failed", str(exc))
+                return {"ok": False, "error": str(exc)}
+
+    async def run_upload(
+        self,
+        temp_path: str,
+        original_filename: str,
+        target_backend_names: Optional[List[str]],
+        encrypt: bool,
+    ) -> Dict[str, Any]:
+        """Upload a user-supplied backup file to the selected backend(s)."""
+        async with self._lock:
+            self._begin("upload")
+            tmp_enc = None
+            try:
+                # 1. Is the file already an encrypted RitiBackup container?
+                already_enc = original_filename.endswith(ENC_SUFFIX)
+                if not already_enc:
+                    try:
+                        with open(temp_path, "rb") as fh:
+                            head = fh.read(len(crypto.MAGIC))
+                        if head == crypto.MAGIC:
+                            already_enc = True
+                    except OSError:
+                        pass
+
+                source = temp_path
+                final_encrypted = already_enc
+
+                # 2. Optionally encrypt a plain tar before upload.
+                if encrypt and not already_enc:
+                    if not self.cfg.encryption_passphrase:
+                        raise RuntimeError(
+                            "Encryption requested but no encryption passphrase is "
+                            "configured. Set a passphrase in the add-on options or "
+                            "upload without encryption."
+                        )
+                    self._set(step="Encrypting…", progress=0.2)
+                    fd, tmp_enc = tempfile.mkstemp(
+                        dir=os.path.dirname(temp_path) or None,
+                        prefix="riti-upload-enc-",
+                        suffix=ENC_SUFFIX,
+                    )
+                    os.close(fd)
+                    await asyncio.get_event_loop().run_in_executor(
+                        None,
+                        lambda: crypto.encrypt_file(
+                            temp_path,
+                            tmp_enc,
+                            self.cfg.encryption_passphrase,
+                            chunk_size=self.cfg.chunk_size_bytes,
+                            n_log2=self.cfg.kdf_n_log2,
+                        ),
+                    )
+                    source = tmp_enc
+                    final_encrypted = True
+
+                # 3. Decide the final remote name.
+                if (
+                    NAME_RE.match(original_filename)
+                    and is_encrypted_name(original_filename) == final_encrypted
+                ):
+                    final_name = original_filename
+                else:
+                    final_name = remote_name(
+                        self.cfg.backup_name_prefix, now_utc(), final_encrypted
+                    )
+
+                # 4. Determine target backends.
+                backends = build_backends(self.cfg)
+                if target_backend_names:
+                    wanted = set(target_backend_names)
+                    backends = [b for b in backends if b.name in wanted]
+                if not backends:
+                    raise RuntimeError("No matching storage backend is enabled")
+
+                # 5. Upload to each target backend.
+                uploaded: List[str] = []
+                errors: List[Dict[str, str]] = []
+                total = len(backends)
+                for i, backend in enumerate(backends):
+                    self._set(
+                        step=f"Uploading to {backend.label}…",
+                        progress=round(0.3 + 0.6 * (i / total), 3),
+                    )
+                    try:
+                        await backend.ensure_ready()
+                        await backend.upload(source, final_name)
+                        uploaded.append(backend.name)
+                    except Exception as exc:  # noqa: BLE001
+                        log.exception("Upload to %s failed", backend.name)
+                        errors.append({"backend": backend.name, "error": str(exc)})
+
+                ok = len(uploaded) > 0
+                if ok:
+                    labels = ", ".join(uploaded)
+                    msg = f"Uploaded {final_name} to {labels}"
+                    if errors:
+                        msg += f"; failed: {', '.join(e['backend'] for e in errors)}"
+                    self._set(step=f"Done. {msg}", progress=1.0)
+                    self._end("success", msg)
+                else:
+                    details = "; ".join(
+                        f"{e['backend']}: {e['error']}" for e in errors
+                    )
+                    msg = f"All uploads failed ({details})" if details else "Upload failed"
+                    self._end("failed", msg)
+                return {
+                    "ok": ok,
+                    "name": final_name,
+                    "backends": uploaded,
+                    "errors": errors,
+                }
+            except Exception as exc:  # noqa: BLE001
+                log.exception("Upload job failed")
+                self._end("failed", str(exc))
+                return {"ok": False, "error": str(exc)}
+            finally:
+                for p in (temp_path, tmp_enc):
+                    if p and os.path.exists(p):
+                        try:
+                            os.remove(p)
+                        except OSError:
+                            pass
+
     async def _apply_retention(self, backend: StorageBackend) -> int:
         """Apply the retention policy to a single backend and delete on it."""
         entries = await self.remote_entries(backend)

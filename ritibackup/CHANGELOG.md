@@ -2,6 +2,17 @@
 
 All notable changes to RitiBackup are documented here.
 
+## 1.2.0
+
+- **Delete a single backup:** remove an individual backup from the backend it
+  lives on, straight from the web UI.
+- **Clear backups in bulk:** delete every backup on one backend — or on all
+  enabled backends at once. This action is irreversible.
+- **Upload a backup from your computer:** send a backup file from your PC to the
+  selected backend(s) so you can restore from it afterwards. Both plain Home
+  Assistant `.tar` and encrypted `.tar.riti` files are accepted; a plain tar can
+  optionally be encrypted on-device before upload.
+
 ## 1.1.0
 
 - **Multiple storage backends:** added **S3** (and S3-compatible providers such

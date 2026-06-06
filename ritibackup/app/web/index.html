@@ -126,6 +126,26 @@
     background:linear-gradient(180deg, rgba(224,86,79,.14), rgba(224,86,79,.04)); }
   button.crimson:hover:not(:disabled){ border-color:var(--crimson-bright); box-shadow:0 0 22px -6px rgba(224,86,79,.7); }
   button.sm{ padding:7px 12px; font-size:10px; }
+  /* subtle trash button in table rows */
+  button.icon-trash{ padding:7px 9px; margin-left:8px; color:var(--faint); border-color:var(--line); vertical-align:middle;
+    display:inline-grid; place-items:center; }
+  button.icon-trash svg{ display:block; }
+  button.icon-trash:hover:not(:disabled){ color:var(--crimson-bright); border-color:var(--crimson-bright);
+    box-shadow:0 0 16px -6px rgba(224,86,79,.7); }
+
+  /* ============ UPLOAD ============ */
+  .upload-row{ display:flex; flex-wrap:wrap; gap:18px; align-items:flex-start; }
+  .upload-col{ display:flex; flex-direction:column; gap:10px; min-width:220px; flex:1; }
+  .file-pick{ display:inline-flex; align-items:center; gap:9px; font-family:var(--mono); font-size:11px;
+    letter-spacing:.13em; text-transform:uppercase; font-weight:600; cursor:pointer; border-radius:var(--radius-sm);
+    padding:11px 16px; border:1px solid var(--line-2); background:transparent; color:var(--ink);
+    transition:border-color .15s, box-shadow .15s; width:fit-content; }
+  .file-pick:hover{ border-color:var(--teal); box-shadow:0 0 18px -6px rgba(52,221,196,.6); }
+  .file-name{ font-family:var(--mono); font-size:12px; color:var(--muted); word-break:break-all; }
+  .upload-targets{ display:flex; flex-direction:column; gap:9px; }
+  .chk{ display:flex; align-items:center; gap:9px; font-family:var(--mono); font-size:12px; color:var(--ink); cursor:pointer; }
+  .chk input{ width:auto; accent-color:var(--teal); }
+  .upload-hint{ font-family:var(--mono); font-size:10.5px; letter-spacing:.05em; color:var(--faint); }
 
   /* ============ BACKENDS ============ */
   .backend-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
@@ -255,7 +275,7 @@
       <span class="mark">रीति</span>
       <div class="names">
         <div class="wordmark">Riti<span>Backup</span></div>
-        <div class="subline">Backup Control · v1.1.0</div>
+        <div class="subline">Backup Control · v1.2.0</div>
       </div>
     </div>
     <div class="hdr-right">
@@ -318,8 +338,22 @@
 
     <!-- ===== REMOTE BACKUPS ===== -->
     <div class="card full">
-      <div class="card-head"><h2>Remote Backups</h2><span class="meta" id="backupsMeta">—</span></div>
+      <div class="card-head">
+        <h2>Remote Backups</h2>
+        <div style="display:flex;align-items:center;gap:12px">
+          <span class="meta" id="backupsMeta">—</span>
+          <button class="sm crimson" id="btnClear" title="Delete all backups from every enabled backend">Clear backups</button>
+        </div>
+      </div>
       <div id="backupsBox"><div class="empty">Loading…</div></div>
+    </div>
+
+    <!-- ===== UPLOAD ===== -->
+    <div class="card full">
+      <div class="card-head"><h2>Upload Backup</h2><span class="meta" id="uploadMeta">—</span></div>
+      <div id="uploadBox">
+        <div class="empty">Loading…</div>
+      </div>
     </div>
 
     <!-- ===== HISTORY ===== -->
@@ -331,7 +365,7 @@
   </div>
 
   <footer>
-    RitiBackup v1.1.0 · sealed locally before leaving this device<br/>
+    RitiBackup v1.2.0 · sealed locally before leaving this device<br/>
     keep your passphrase safe — without it, encrypted backups cannot be recovered
   </footer>
 </div>
@@ -372,7 +406,7 @@
 <div class="overlay" id="infoOverlay">
   <div class="modal">
     <h3>रीति · RitiBackup</h3>
-    <p>Intelligent encrypted backup control for Home Assistant. v1.1.0.</p>
+    <p>Intelligent encrypted backup control for Home Assistant. v1.2.0.</p>
     <p style="color:var(--faint);font-size:12.5px">Backups are sealed on-device with ChaCha20-Poly1305 (when a passphrase is set) and replicated to your configured WebDAV, S3, and Backblaze B2 backends. Configure backends and the encryption passphrase in the add-on's Configuration tab.</p>
     <div class="row"><button class="sm" id="infoClose">Close</button></div>
   </div>
@@ -384,6 +418,7 @@
 const $ = s => document.querySelector(s);
 const $$ = s => Array.from(document.querySelectorAll(s));
 let polling=null, backupsPolling=null, jobPolling=null, lastJobActive=false;
+let lastStatus=null, lastConfig=null;
 
 /* RELATIVE fetch helper — REQUIRED for Ingress (strips leading slash) */
 function api(path, opts){ return fetch(path.replace(/^\//,''), opts).then(r=>r.json()); }
@@ -417,10 +452,12 @@ function backendChipClass(name){ const n=(name||'').toLowerCase();
 
 const LOCK_SVG='<svg class="lock" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="11" width="16" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>';
 const NOLOCK_SVG='<svg class="nolock" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="11" width="16" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 7-1.5"/></svg>';
+const TRASH_SVG='<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>';
 
 /* ===================== STATUS ===================== */
 async function refreshStatus(){
   let s; try{ s=await api('api/status'); }catch(e){ setUnreachable(); return; }
+  lastStatus=s;
   setLive(s);
 
   $('#haMeta').textContent = s.ha_version ? ('HA '+s.ha_version) : (s.supervisor_ok?'SUPERVISOR OK':'OFFLINE');
@@ -450,6 +487,7 @@ async function refreshStatus(){
   renderBackends(s.backends||[]);
   renderPolicy(s.policy||{});
   renderHistory(s.history||[]);
+  renderUpload(s);
 
   // schedule pill
   const sp=$('#schedulePill');
@@ -586,7 +624,10 @@ async function refreshBackups(){
       '<td class="mono">'+esc(fmtLocal(b.timestamp))+'<br><span style="color:var(--faint);font-size:11px">'+esc(fmtAge(b.timestamp))+'</span></td>'+
       '<td class="mono">'+esc(b.size_h||human(b.size))+'</td>'+
       '<td>'+chip+'</td>'+
-      '<td style="text-align:right"><button class="sm" data-restore="'+payload+'">Restore</button></td>'+
+      '<td style="text-align:right;white-space:nowrap">'+
+        '<button class="sm" data-restore="'+payload+'">Restore</button>'+
+        '<button class="sm icon-trash" data-delete="'+payload+'" title="Delete this backup" aria-label="Delete this backup">'+TRASH_SVG+'</button>'+
+      '</td>'+
       '</tr>';
   });
   html+='</tbody></table>';
@@ -594,6 +635,124 @@ async function refreshBackups(){
   box.querySelectorAll('[data-restore]').forEach(btn=>{
     btn.onclick=()=>openRestore(JSON.parse(decodeURIComponent(btn.dataset.restore)));
   });
+  box.querySelectorAll('[data-delete]').forEach(btn=>{
+    btn.onclick=()=>deleteBackup(JSON.parse(decodeURIComponent(btn.dataset.delete)), btn);
+  });
+}
+
+/* ===================== DELETE / CLEAR ===================== */
+async function deleteBackup(target, btn){
+  const label=target.backend_label||target.backend||'backend';
+  if(lastJobActive){ toast('A job is already running — please wait','bad'); return; }
+  if(!confirm('Delete this backup from '+label+'? This cannot be undone.\n\n'+target.name)) return;
+  if(btn) btn.disabled=true;
+  let r; try{ r=await api('api/delete',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name:target.name, backend:target.backend})}); }
+  catch(e){ toast('Could not delete','bad'); if(btn) btn.disabled=false; return; }
+  if(r && r.ok){ toast('Backup deleted','ok'); refreshBackups(); refreshStatus(); }
+  else { const err=(r&&r.error)||'Delete failed';
+    toast(/job is already running/i.test(err)?'A job is already running — please wait':err,'bad');
+    if(btn) btn.disabled=false; }
+}
+$('#btnClear').onclick=async()=>{
+  if(lastJobActive){ toast('A job is already running — please wait','bad'); return; }
+  if(!confirm('Delete ALL backups from ALL enabled backends? This is irreversible.')) return;
+  const btn=$('#btnClear'); btn.disabled=true;
+  let r; try{ r=await api('api/clear',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})}); }
+  catch(e){ toast('Could not clear','bad'); btn.disabled=false; return; }
+  btn.disabled=false;
+  if(!r || r.ok===false){ const err=(r&&r.error)||'Clear failed';
+    toast(/job is already running/i.test(err)?'A job is already running — please wait':err,'bad'); return; }
+  const n=r.deleted!=null?r.deleted:0;
+  toast('Deleted '+n+' backup'+(n===1?'':'s'), 'ok');
+  if(r.errors && r.errors.length){
+    r.errors.forEach(e=> setTimeout(()=>toast('⚠ '+(e.backend||'')+': '+(e.error||'failed'),'bad'), 200));
+  }
+  refreshBackups(); refreshStatus();
+};
+
+/* ===================== UPLOAD ===================== */
+function renderUpload(s){
+  const box=$('#uploadBox');
+  const enabled=(s.backends||[]).filter(b=>b.enabled);
+  $('#uploadMeta').textContent=enabled.length+' TARGET'+(enabled.length===1?'':'S');
+
+  if(!enabled.length){
+    box.innerHTML='<div class="empty">No backend enabled — enable a backend first in the add-on’s Configuration tab.</div>';
+    return;
+  }
+
+  // preserve current selection / chosen file across re-renders
+  const prevChecked={}; box.querySelectorAll('[data-be-target]').forEach(c=>{ prevChecked[c.value]=c.checked; });
+  const prevEnc=$('#uploadEncrypt'); const prevEncChecked = prevEnc?prevEnc.checked:!!s.encryption_enabled;
+
+  // encryption is usable only if a passphrase is configured, or it's already enabled
+  const encUsable = (lastConfig && lastConfig.encryption_passphrase==='set') || !!s.encryption_enabled;
+  const encChecked = prevEnc ? prevEncChecked : !!s.encryption_enabled;
+  const encBlock = encUsable
+    ? ('<label class="chk" style="margin-top:4px"><input type="checkbox" id="uploadEncrypt"'+(encChecked?' checked':'')+'/>'+
+         '<span>Encrypt before upload</span></label>'+
+       '<div class="upload-hint">Only applies to unencrypted .tar files; already-encrypted .tar.riti files are uploaded as-is.</div>')
+    : '';
+
+  let targets='';
+  enabled.forEach(b=>{
+    const name=b.name||''; const checked=(name in prevChecked)?prevChecked[name]:true;
+    targets+='<label class="chk"><input type="checkbox" data-be-target value="'+esc(name)+'"'+(checked?' checked':'')+'/>'+
+      '<span class="chip '+backendChipClass(name)+'">'+esc(b.label||name)+'</span></label>';
+  });
+
+  box.innerHTML=
+    '<div class="upload-row">'+
+      '<div class="upload-col">'+
+        '<label class="file-pick" for="uploadFile">'+
+          '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17V3"/><path d="M6 9l6-6 6 6"/><path d="M5 21h14"/></svg>'+
+          'Choose file</label>'+
+        '<input type="file" id="uploadFile" accept=".tar,.riti,.tar.riti,application/x-tar" style="display:none" />'+
+        '<div class="file-name" id="uploadFileName">No file selected · hint: .tar / .tar.riti</div>'+
+        encBlock+
+      '</div>'+
+      '<div class="upload-col">'+
+        '<div class="upload-hint">Upload to</div>'+
+        '<div class="upload-targets">'+targets+'</div>'+
+      '</div>'+
+    '</div>'+
+    '<div class="actions">'+
+      '<button class="primary" id="btnUpload" disabled>⬆ Upload</button>'+
+    '</div>';
+
+  const fileInput=$('#uploadFile'), fileName=$('#uploadFileName'), btnUpload=$('#btnUpload');
+  fileInput.onchange=()=>{
+    const f=fileInput.files&&fileInput.files[0];
+    fileName.textContent=f?f.name:'No file selected · hint: .tar / .tar.riti';
+    btnUpload.disabled=!f || lastJobActive;
+  };
+  btnUpload.onclick=doUpload;
+  // keep upload button disabled while a job runs
+  if(lastJobActive) btnUpload.disabled=true;
+}
+
+async function doUpload(){
+  const fileInput=$('#uploadFile'); const btn=$('#btnUpload');
+  const f=fileInput && fileInput.files && fileInput.files[0];
+  if(!f){ toast('Choose a file first','bad'); return; }
+  const targets=$$('[data-be-target]').filter(c=>c.checked).map(c=>c.value);
+  if(!targets.length){ toast('Select at least one backend','bad'); return; }
+  const encrypt=$('#uploadEncrypt') && $('#uploadEncrypt').checked;
+
+  const fd=new FormData();
+  fd.append('file', f);
+  fd.append('backends', targets.join(','));
+  fd.append('encrypt', encrypt?'true':'false');
+
+  btn.disabled=true; setButtons(true); lastJobActive=true;
+  let r; try{ r=await api('api/upload',{method:'POST',body:fd}); }
+  catch(e){ toast('Upload could not start','bad'); setButtons(false); lastJobActive=false; btn.disabled=false; return; }
+  if(!r || !r.ok){ const err=(r&&r.error)||'Upload could not start';
+    toast(/job is already running/i.test(err)?'A job is already running — please wait':err,'bad');
+    setButtons(false); lastJobActive=false; btn.disabled=false; return; }
+  toast('Upload started…','ok');
+  startJobPolling();
 }
 
 /* ===================== JOB POLLING ===================== */
@@ -622,7 +781,8 @@ async function pollJob(){
   if(j.active) setButtons(true);
 }
 function setButtons(busy){
-  ['#btnBackup','#btnTest','#btnRetention','#confirmRestore'].forEach(s=>{ const e=$(s); if(e) e.disabled=busy; });
+  ['#btnBackup','#btnTest','#btnRetention','#confirmRestore','#btnClear'].forEach(s=>{ const e=$(s); if(e) e.disabled=busy; });
+  const up=$('#btnUpload'); if(up){ const f=$('#uploadFile'); up.disabled = busy || !(f && f.files && f.files.length); }
 }
 
 /* ===================== TEST CONNECTIONS ===================== */
@@ -702,6 +862,7 @@ $('#infoOverlay').onclick=e=>{ if(e.target===$('#infoOverlay')) $('#infoOverlay'
 
 /* ===================== INIT / POLLING ===================== */
 async function init(){
+  try{ lastConfig=await api('api/config'); }catch(e){ lastConfig=null; }
   await refreshStatus(); await refreshBackups();
   try{ const j=await api('api/job'); if(j.active){ lastJobActive=true; startJobPolling(); } }catch(e){}
   polling=setInterval(refreshStatus, 6000);

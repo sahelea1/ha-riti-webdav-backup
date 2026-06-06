@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import tempfile
 from datetime import datetime, timezone
 
 from aiohttp import web
@@ -56,6 +57,9 @@ class Server:
         a.router.add_post("/api/backup", self.api_backup)
         a.router.add_post("/api/retention", self.api_retention)
         a.router.add_post("/api/restore", self.api_restore)
+        a.router.add_post("/api/delete", self.api_delete)
+        a.router.add_post("/api/clear", self.api_clear)
+        a.router.add_post("/api/upload", self.api_upload)
         a.router.add_get("/", self.index)
         a.router.add_static("/static/", WEB_DIR, show_index=False)
 
@@ -175,6 +179,99 @@ class Server:
             )
         )
         return web.json_response({"ok": True, "started": True})
+
+    async def api_delete(self, request: web.Request) -> web.Response:
+        if self.jobs.status.active:
+            return web.json_response({"ok": False, "error": "A job is already running"})
+        body = await request.json()
+        name = body.get("name")
+        backend = body.get("backend")
+        if not name:
+            return web.json_response({"ok": False, "error": "No backup selected"})
+        if not backend:
+            return web.json_response({"ok": False, "error": "No backend selected"})
+        res = await self.jobs.delete_one(name, backend)
+        return web.json_response(res)
+
+    async def api_clear(self, request: web.Request) -> web.Response:
+        if self.jobs.status.active:
+            return web.json_response({"ok": False, "error": "A job is already running"})
+        try:
+            body = await request.json()
+        except Exception:  # noqa: BLE001
+            body = {}
+        res = await self.jobs.clear_all(body.get("backend"))
+        return web.json_response(res)
+
+    async def api_upload(self, request: web.Request) -> web.Response:
+        if self.jobs.status.active:
+            return web.json_response({"ok": False, "error": "A job is already running"})
+
+        temp_path = None
+        original_filename = ""
+        backends_raw = ""
+        encrypt_raw = None
+        name_field = ""
+        try:
+            reader = await request.multipart()
+            while True:
+                part = await reader.next()
+                if part is None:
+                    break
+                if part.name == "file":
+                    original_filename = part.filename or "upload.tar"
+                    fd, temp_path = tempfile.mkstemp(
+                        dir="/backup" if os.path.isdir("/backup") else None,
+                        prefix="riti-upload-",
+                        suffix=".bin",
+                    )
+                    with os.fdopen(fd, "wb") as out:
+                        while True:
+                            chunk = await part.read_chunk()
+                            if not chunk:
+                                break
+                            out.write(chunk)
+                elif part.name == "backends":
+                    backends_raw = (await part.text()).strip()
+                elif part.name == "encrypt":
+                    encrypt_raw = (await part.text()).strip()
+                elif part.name == "name":
+                    name_field = (await part.text()).strip()
+
+            if temp_path is None or not os.path.exists(temp_path):
+                return web.json_response({"ok": False, "error": "No file uploaded"})
+
+            # Parse target backends (comma-separated names; blank/"all" => None).
+            backend_list = None
+            if backends_raw and backends_raw.lower() != "all":
+                backend_list = [
+                    b.strip() for b in backends_raw.split(",") if b.strip()
+                ] or None
+
+            # Parse encryption flag (default to configured encryption setting).
+            if encrypt_raw is None:
+                encrypt_bool = bool(self.cfg.encryption_enabled)
+            else:
+                encrypt_bool = encrypt_raw.lower() in ("true", "1", "on", "yes")
+
+            # Optional desired filename override.
+            if name_field:
+                original_filename = name_field
+
+            self._spawn(
+                self.jobs.run_upload(
+                    temp_path, original_filename, backend_list, encrypt_bool
+                )
+            )
+            return web.json_response({"ok": True, "started": True})
+        except Exception as exc:  # noqa: BLE001
+            log.exception("Upload streaming failed")
+            if temp_path and os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
+            return web.json_response({"ok": False, "error": str(exc)})
 
 
 def build_app(cfg: Config, state: State, jobs: JobManager, sched: Scheduler) -> web.Application:

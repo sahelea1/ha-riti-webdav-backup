@@ -32,6 +32,6 @@ LABEL \
     io.hass.name="RitiBackup" \
     io.hass.description="Home Assistant backups to WebDAV, S3, and Backblaze B2" \
     io.hass.type="addon" \
-    io.hass.version="1.1.0"
+    io.hass.version="1.2.0"
 
 CMD [ "/run.sh" ]

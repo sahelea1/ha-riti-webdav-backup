@@ -1,6 +1,6 @@
 ---
 name: RitiBackup
-version: "1.1.0"
+version: "1.2.0"
 slug: ritibackup
 description: >-
   Home Assistant backups to WebDAV, S3, and Backblaze B2 (use one or many),
