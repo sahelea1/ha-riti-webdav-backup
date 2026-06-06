@@ -18,13 +18,34 @@ STATE_PATH = os.environ.get("RITI_STATE_PATH", "/data/state.json")
 
 @dataclass
 class Config:
+    # --- Encryption (optional, off by default) ---------------------------
+    encryption_enabled: bool = False
+    encryption_passphrase: str = ""
+
+    # --- WebDAV backend --------------------------------------------------
+    webdav_enabled: bool = False
     webdav_url: str = ""
     webdav_username: str = ""
     webdav_password: str = ""
     webdav_path: str = "/RitiBackup"
     webdav_verify_ssl: bool = True
 
-    encryption_passphrase: str = ""
+    # --- S3 (and S3-compatible) backend ----------------------------------
+    s3_enabled: bool = False
+    s3_endpoint_url: str = ""             # blank = AWS S3
+    s3_region: str = ""
+    s3_bucket: str = ""
+    s3_access_key_id: str = ""
+    s3_secret_access_key: str = ""
+    s3_prefix: str = "RitiBackup"
+    s3_path_style: bool = False
+
+    # --- Backblaze B2 backend --------------------------------------------
+    b2_enabled: bool = False
+    b2_key_id: str = ""
+    b2_application_key: str = ""
+    b2_bucket: str = ""
+    b2_prefix: str = "RitiBackup"
 
     schedule_time: str = "03:00"          # HH:MM, 24h, addon local time
     schedule_interval_days: int = 2       # every second day
@@ -68,20 +89,46 @@ class Config:
         return p if p != "/" else ""
 
     def redacted(self) -> Dict[str, Any]:
-        """Config safe to send to the browser (no secrets)."""
+        """Config safe to send to the browser (secrets masked)."""
         d = asdict(self)
         d["webdav_password"] = "********" if self.webdav_password else ""
+        d["s3_secret_access_key"] = "********" if self.s3_secret_access_key else ""
+        d["b2_application_key"] = "********" if self.b2_application_key else ""
         d["encryption_passphrase"] = "set" if self.encryption_passphrase else ""
         return d
 
     def configured(self) -> List[str]:
-        """Return a list of missing required settings."""
-        missing = []
-        if not self.webdav_url:
+        """Return a list of missing required settings (empty == ready)."""
+        missing: List[str] = []
+        if not (self.webdav_enabled or self.s3_enabled or self.b2_enabled):
+            missing.append("a storage backend (enable WebDAV, S3, or B2)")
+        if self.webdav_enabled and not self.webdav_url:
             missing.append("webdav_url")
-        if not self.encryption_passphrase:
+        if self.s3_enabled:
+            if not self.s3_bucket:
+                missing.append("s3_bucket")
+            if not self.s3_access_key_id:
+                missing.append("s3_access_key_id")
+            if not self.s3_secret_access_key:
+                missing.append("s3_secret_access_key")
+        if self.b2_enabled:
+            if not self.b2_key_id:
+                missing.append("b2_key_id")
+            if not self.b2_application_key:
+                missing.append("b2_application_key")
+            if not self.b2_bucket:
+                missing.append("b2_bucket")
+        if self.encryption_enabled and not self.encryption_passphrase:
             missing.append("encryption_passphrase")
         return missing
+
+    def backends_summary(self) -> List[Dict[str, Any]]:
+        """Describe all three backends (for the UI), in webdav/s3/b2 order."""
+        return [
+            {"name": "webdav", "label": "WebDAV", "enabled": bool(self.webdav_enabled)},
+            {"name": "s3", "label": "S3", "enabled": bool(self.s3_enabled)},
+            {"name": "b2", "label": "Backblaze B2", "enabled": bool(self.b2_enabled)},
+        ]
 
 
 @dataclass

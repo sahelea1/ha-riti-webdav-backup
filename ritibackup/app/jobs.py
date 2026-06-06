@@ -15,17 +15,26 @@ from typing import Any, Dict, List, Optional
 from . import crypto
 from .config import Config, HistoryItem, State, iso, now_utc
 from .retention import BackupEntry, plan_retention
+from .storage import RemoteFile, StorageBackend, StorageError, build_backends
 from .supervisor import SupervisorClient, SupervisorError
-from .webdav import RemoteFile, WebDavClient, WebDavError
 
 log = logging.getLogger("ritibackup.jobs")
 
-SUFFIX = ".tar.riti"
-NAME_RE = re.compile(r"^(?P<prefix>.+)_(?P<ts>\d{8}T\d{6}Z)\.tar\.riti$")
+ENC_SUFFIX = ".tar.riti"
+PLAIN_SUFFIX = ".tar"
+# Accept both encrypted (.tar.riti) and plain (.tar) backups; capture the ts.
+NAME_RE = re.compile(r"^(?P<prefix>.+)_(?P<ts>\d{8}T\d{6}Z)\.tar(?:\.riti)?$")
 
 
-def remote_name(prefix: str, when: datetime) -> str:
-    return f"{prefix}_{when.astimezone(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}{SUFFIX}"
+def is_encrypted_name(name: str) -> bool:
+    """True if a backup filename is an encrypted RitiBackup container."""
+    return name.endswith(ENC_SUFFIX)
+
+
+def remote_name(prefix: str, when: datetime, encrypted: bool) -> str:
+    ts = when.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    suffix = ENC_SUFFIX if encrypted else PLAIN_SUFFIX
+    return f"{prefix}_{ts}{suffix}"
 
 
 def parse_remote_time(name: str) -> Optional[datetime]:
@@ -38,6 +47,11 @@ def parse_remote_time(name: str) -> Optional[datetime]:
         )
     except ValueError:
         return None
+
+
+def is_backup_name(name: str) -> bool:
+    """True if a filename matches the RitiBackup naming pattern."""
+    return NAME_RE.match(name) is not None
 
 
 @dataclass
@@ -75,13 +89,9 @@ class JobManager:
         self._lock = asyncio.Lock()
 
     # --- helpers ---------------------------------------------------------
-    def _dav(self) -> WebDavClient:
-        return WebDavClient(
-            self.cfg.webdav_url,
-            self.cfg.webdav_username,
-            self.cfg.webdav_password,
-            self.cfg.webdav_verify_ssl,
-        )
+    def _backends(self) -> List[StorageBackend]:
+        """Instantiate one client per enabled storage backend."""
+        return build_backends(self.cfg)
 
     def _set(self, *, step: str | None = None, progress: float | None = None) -> None:
         if step is not None:
@@ -103,26 +113,51 @@ class JobManager:
         self.status.finished_at = iso(now_utc())
         self.status.progress = 1.0 if result == "success" else self.status.progress
 
-    # --- WebDAV connectivity test ---------------------------------------
-    async def test_connection(self) -> Dict[str, Any]:
-        dav = self._dav()
-        await dav.check()
-        await dav.ensure_dir(self.cfg.remote_dir)
-        files = await self.list_remote()
-        return {"ok": True, "backups": len(files)}
+    # --- connectivity test (per enabled backend) ------------------------
+    async def test_backends(self) -> List[Dict[str, Any]]:
+        """Test each ENABLED backend: check -> ensure_ready -> count backups."""
+        results: List[Dict[str, Any]] = []
+        for backend in self._backends():
+            entry: Dict[str, Any] = {
+                "backend": backend.name,
+                "label": backend.label,
+                "ok": False,
+            }
+            try:
+                await backend.check()
+                await backend.ensure_ready()
+                files = [f for f in await backend.list() if is_backup_name(f.name)]
+                entry["ok"] = True
+                entry["backups"] = len(files)
+            except Exception as exc:  # noqa: BLE001
+                entry["error"] = str(exc)
+            results.append(entry)
+        return results
 
     # --- listing ---------------------------------------------------------
-    async def list_remote(self) -> List[RemoteFile]:
-        dav = self._dav()
-        files = await dav.list_dir(self.cfg.remote_dir)
-        return [
-            f for f in files
-            if not f.is_dir and f.name.endswith(SUFFIX)
-        ]
+    async def list_remote(self) -> tuple[List[RemoteFile], List[Dict[str, str]]]:
+        """Aggregate backup files across all enabled backends.
 
-    async def remote_entries(self) -> List[BackupEntry]:
-        out = []
-        for f in await self.list_remote():
+        Returns ``(files, errors)`` where ``errors`` is a list of
+        ``{"backend", "error"}`` for backends that could not be listed.
+        """
+        files: List[RemoteFile] = []
+        errors: List[Dict[str, str]] = []
+        for backend in self._backends():
+            try:
+                for f in await backend.list():
+                    if is_backup_name(f.name):
+                        files.append(f)
+            except Exception as exc:  # noqa: BLE001
+                errors.append({"backend": backend.name, "error": str(exc)})
+        return files, errors
+
+    async def remote_entries(self, backend: StorageBackend) -> List[BackupEntry]:
+        """Retention entries for a single backend's files."""
+        out: List[BackupEntry] = []
+        for f in await backend.list():
+            if not is_backup_name(f.name):
+                continue
             ts = parse_remote_time(f.name) or f.modified or now_utc()
             out.append(BackupEntry(id=f.name, timestamp=ts, size=f.size))
         return out
@@ -135,6 +170,7 @@ class JobManager:
             when = now_utc()
             slug = None
             tmp_enc = None
+            encrypted = bool(self.cfg.encryption_enabled)
             history = HistoryItem(
                 timestamp=iso(when), remote_name="", status="running", kind=kind
             )
@@ -142,6 +178,10 @@ class JobManager:
                 missing = self.cfg.configured()
                 if missing:
                     raise RuntimeError(f"Missing configuration: {', '.join(missing)}")
+
+                backends = self._backends()
+                if not backends:
+                    raise RuntimeError("No storage backend is enabled")
 
                 name = f"{self.cfg.backup_name_prefix} {when.strftime('%Y-%m-%d %H:%M')}"
                 self._set(step="Asking Supervisor to create a full backup…", progress=0.05)
@@ -155,59 +195,108 @@ class JobManager:
                 if not os.path.exists(tar_path):
                     raise RuntimeError(f"Backup tar not found at {tar_path}")
                 pt_size = os.path.getsize(tar_path)
-                self._set(
-                    step=f"Backup created ({_human(pt_size)}). Encrypting with ChaCha20-Poly1305…",
-                    progress=0.4,
-                )
 
-                rname = remote_name(self.cfg.backup_name_prefix, when)
+                rname = remote_name(self.cfg.backup_name_prefix, when, encrypted)
                 history.remote_name = rname
-                fd, tmp_enc = tempfile.mkstemp(prefix="riti-", suffix=".enc")
-                os.close(fd)
 
-                enc_size = await asyncio.get_event_loop().run_in_executor(
-                    None,
-                    lambda: crypto.encrypt_file(
-                        tar_path,
-                        tmp_enc,
-                        self.cfg.encryption_passphrase,
-                        chunk_size=self.cfg.chunk_size_bytes,
-                        n_log2=self.cfg.kdf_n_log2,
-                    ),
-                )
-                self._set(
-                    step=f"Encrypted ({_human(enc_size)}). Uploading to WebDAV…",
-                    progress=0.6,
-                )
+                if encrypted:
+                    self._set(
+                        step=f"Backup created ({_human(pt_size)}). "
+                        "Encrypting with ChaCha20-Poly1305…",
+                        progress=0.35,
+                    )
+                    fd, tmp_enc = tempfile.mkstemp(prefix="riti-", suffix=".enc")
+                    os.close(fd)
+                    enc_size = await asyncio.get_event_loop().run_in_executor(
+                        None,
+                        lambda: crypto.encrypt_file(
+                            tar_path,
+                            tmp_enc,
+                            self.cfg.encryption_passphrase,
+                            chunk_size=self.cfg.chunk_size_bytes,
+                            n_log2=self.cfg.kdf_n_log2,
+                        ),
+                    )
+                    source = tmp_enc
+                    self._set(
+                        step=f"Encrypted ({_human(enc_size)}). Uploading…",
+                        progress=0.5,
+                    )
+                else:
+                    # Upload the plain Supervisor tar directly (no encryption).
+                    enc_size = pt_size
+                    source = tar_path
+                    self._set(
+                        step=f"Backup created ({_human(pt_size)}). "
+                        "Uploading (unencrypted)…",
+                        progress=0.5,
+                    )
 
-                dav = self._dav()
-                await dav.ensure_dir(self.cfg.remote_dir)
-                await dav.upload(tmp_enc, f"{self.cfg.remote_dir}/{rname}")
-                self._set(step="Upload complete. Applying retention policy…", progress=0.85)
+                # Upload to every enabled backend; track per-backend outcomes.
+                uploaded: List[str] = []
+                upload_errors: List[Dict[str, str]] = []
+                total = len(backends)
+                pruned_total = 0
+                for i, backend in enumerate(backends):
+                    base = 0.5 + 0.4 * (i / total)
+                    self._set(
+                        step=f"Uploading to {backend.label}…",
+                        progress=round(base, 3),
+                    )
+                    try:
+                        await backend.ensure_ready()
+                        await backend.upload(source, rname)
+                        uploaded.append(backend.label)
+                        pruned_total += await self._apply_retention(backend)
+                    except Exception as exc:  # noqa: BLE001
+                        log.exception("Upload to %s failed", backend.name)
+                        upload_errors.append(
+                            {"backend": backend.name, "error": str(exc)}
+                        )
 
-                # Clean up local artifacts
+                if not uploaded:
+                    details = "; ".join(
+                        f"{e['backend']}: {e['error']}" for e in upload_errors
+                    )
+                    raise RuntimeError(f"All backend uploads failed ({details})")
+
+                # Clean up local Supervisor artifact only after at least one
+                # successful upload.
                 if self.cfg.delete_local_after_upload and slug:
                     try:
                         await self.sv.delete_backup(slug)
                     except SupervisorError as exc:
                         log.warning("Could not delete local backup %s: %s", slug, exc)
 
-                pruned = await self._apply_retention(dav)
-                self._set(
-                    step=f"Done. Pruned {pruned} old backup(s).", progress=1.0
-                )
+                if upload_errors:
+                    failed = ", ".join(e["backend"] for e in upload_errors)
+                    msg = (
+                        f"Uploaded to {', '.join(uploaded)}; "
+                        f"failed: {failed}. Pruned {pruned_total} old backup(s)."
+                    )
+                else:
+                    msg = (
+                        f"Uploaded to {', '.join(uploaded)}. "
+                        f"Pruned {pruned_total} old backup(s)."
+                    )
+                self._set(step=f"Done. {msg}", progress=1.0)
 
                 dur = time.monotonic() - t0
                 history.status = "success"
                 history.plaintext_size = pt_size
                 history.encrypted_size = enc_size
                 history.duration_seconds = round(dur, 1)
-                history.message = f"Pruned {pruned} old backup(s)"
+                history.message = msg
                 self.state.last_backup_at = iso(when)
                 self.state.last_result = "success"
-                self.state.last_message = "Backup uploaded successfully"
-                self._end("success", "Backup uploaded successfully")
-                return {"ok": True, "remote_name": rname, "encrypted_size": enc_size}
+                self.state.last_message = msg
+                self._end("success", msg)
+                return {
+                    "ok": True,
+                    "remote_name": rname,
+                    "uploaded": uploaded,
+                    "errors": upload_errors,
+                }
 
             except Exception as exc:  # noqa: BLE001
                 msg = str(exc)
@@ -226,8 +315,9 @@ class JobManager:
                         pass
                 self.state.add_history(history)
 
-    async def _apply_retention(self, dav: WebDavClient) -> int:
-        entries = await self.remote_entries()
+    async def _apply_retention(self, backend: StorageBackend) -> int:
+        """Apply the retention policy to a single backend and delete on it."""
+        entries = await self.remote_entries(backend)
         plan = plan_retention(
             entries,
             now_utc(),
@@ -236,16 +326,28 @@ class JobManager:
             keep_bridge=self.cfg.keep_bridge,
         )
         for e in plan.delete:
-            await dav.delete(f"{self.cfg.remote_dir}/{e.id}")
-            log.info("Retention: deleted %s", e.id)
+            await backend.delete(e.id)
+            log.info("Retention [%s]: deleted %s", backend.name, e.id)
         return len(plan.delete)
 
     async def run_retention(self) -> Dict[str, Any]:
         async with self._lock:
             self._begin("retention")
             try:
-                dav = self._dav()
-                pruned = await self._apply_retention(dav)
+                pruned = 0
+                errors: List[Dict[str, str]] = []
+                for backend in self._backends():
+                    try:
+                        pruned += await self._apply_retention(backend)
+                    except Exception as exc:  # noqa: BLE001
+                        log.exception("Retention on %s failed", backend.name)
+                        errors.append({"backend": backend.name, "error": str(exc)})
+                if errors and pruned == 0 and len(errors) == len(self._backends()):
+                    details = "; ".join(
+                        f"{e['backend']}: {e['error']}" for e in errors
+                    )
+                    self._end("failed", details)
+                    return {"ok": False, "error": details}
                 self._end("success", f"Pruned {pruned} backup(s)")
                 return {"ok": True, "pruned": pruned}
             except Exception as exc:  # noqa: BLE001
@@ -254,35 +356,59 @@ class JobManager:
 
     # --- RESTORE ---------------------------------------------------------
     async def run_restore(
-        self, remote_filename: str, passphrase: str, *, trigger_restore: bool
+        self,
+        remote_filename: str,
+        backend_name: str,
+        passphrase: str,
+        *,
+        trigger_restore: bool,
     ) -> Dict[str, Any]:
         async with self._lock:
             self._begin("restore")
-            tmp_enc = tmp_tar = None
+            tmp_dl = tmp_tar = None
+            encrypted = is_encrypted_name(remote_filename)
             try:
-                fd, tmp_enc = tempfile.mkstemp(prefix="riti-dl-", suffix=".enc")
-                os.close(fd)
-                fd, tmp_tar = tempfile.mkstemp(
-                    dir="/backup" if os.path.isdir("/backup") else None,
-                    prefix="riti-restore-",
-                    suffix=".tar",
+                backend = next(
+                    (b for b in self._backends() if b.name == backend_name), None
                 )
+                if backend is None:
+                    raise RuntimeError(
+                        f"Backend {backend_name!r} is not enabled or unknown"
+                    )
+                if encrypted and not passphrase:
+                    raise RuntimeError(
+                        "This backup is encrypted; a passphrase is required to "
+                        "restore it."
+                    )
+
+                fd, tmp_dl = tempfile.mkstemp(prefix="riti-dl-", suffix=".bin")
                 os.close(fd)
 
-                self._set(step=f"Downloading {remote_filename}…", progress=0.1)
-                dav = self._dav()
-                await dav.download(
-                    f"{self.cfg.remote_dir}/{remote_filename}", tmp_enc
+                self._set(
+                    step=f"Downloading {remote_filename} from {backend.label}…",
+                    progress=0.1,
                 )
+                await backend.download(remote_filename, tmp_dl)
 
-                self._set(step="Decrypting and verifying…", progress=0.45)
-                await asyncio.get_event_loop().run_in_executor(
-                    None,
-                    lambda: crypto.decrypt_file(tmp_enc, tmp_tar, passphrase),
-                )
+                if encrypted:
+                    fd, tmp_tar = tempfile.mkstemp(
+                        dir="/backup" if os.path.isdir("/backup") else None,
+                        prefix="riti-restore-",
+                        suffix=".tar",
+                    )
+                    os.close(fd)
+                    self._set(step="Decrypting and verifying…", progress=0.45)
+                    await asyncio.get_event_loop().run_in_executor(
+                        None,
+                        lambda: crypto.decrypt_file(tmp_dl, tmp_tar, passphrase),
+                    )
+                    tar_path = tmp_tar
+                else:
+                    # Already a plain Supervisor tar; upload it directly.
+                    tar_path = tmp_dl
 
                 self._set(step="Registering backup with Supervisor…", progress=0.75)
-                slug = await self.sv.upload_backup(tmp_tar)
+                slug = await self.sv.upload_backup(tar_path)
 
                 if trigger_restore:
                     self._set(
@@ -294,7 +420,7 @@ class JobManager:
                 else:
                     self._end(
                         "success",
-                        f"Decrypted and imported as backup '{slug}'. "
+                        f"Imported as backup '{slug}'. "
                         "Restore it from Settings → System → Backups.",
                     )
                 return {"ok": True, "slug": slug}
@@ -306,7 +432,7 @@ class JobManager:
                 self._end("failed", str(exc))
                 return {"ok": False, "error": str(exc)}
             finally:
-                for p in (tmp_enc, tmp_tar):
+                for p in (tmp_dl, tmp_tar):
                     if p and os.path.exists(p):
                         try:
                             os.remove(p)

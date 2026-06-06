@@ -1,8 +1,9 @@
 # RitiBackup Add-on Repository
 
-A Home Assistant add-on repository containing **RitiBackup** — encrypted Home
-Assistant backups to WebDAV, with on-device ChaCha20-Poly1305 encryption, an
-automatic schedule, smart retention, and one-click decrypt & restore.
+A Home Assistant add-on repository containing **RitiBackup** — Home Assistant
+backups to WebDAV, S3, and Backblaze B2 (use one or many), with optional
+on-device ChaCha20-Poly1305 encryption, an automatic schedule, per-backend
+smart retention, and one-click restore.
 
 ## Installation
 

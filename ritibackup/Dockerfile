@@ -5,14 +5,19 @@ FROM ${BUILD_FROM}
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
-# Install Python and the two native dependencies from Alpine's prebuilt
-# packages. Using the apk wheels for cryptography and aiohttp avoids having to
-# compile Rust/C extensions at build time, which keeps the image small and the
-# build fast and reliable across all architectures.
+# Install Python and the native dependencies from Alpine's prebuilt packages.
+# Using the apk wheels for cryptography and aiohttp avoids having to compile
+# Rust/C extensions at build time, which keeps the image small and the build
+# fast and reliable across all architectures.
 RUN apk add --no-cache \
         python3 \
+        py3-pip \
         py3-cryptography \
         py3-aiohttp
+
+# S3 (boto3) and Backblaze B2 (b2sdk) backends. Both are pure-Python and pull
+# in only pure-Python deps, so no compilers are needed.
+RUN pip3 install --no-cache-dir --break-system-packages boto3 b2sdk
 
 # Application code
 WORKDIR /opt/ritibackup
@@ -25,8 +30,8 @@ EXPOSE 8099
 
 LABEL \
     io.hass.name="RitiBackup" \
-    io.hass.description="Encrypted Home Assistant backups to WebDAV" \
+    io.hass.description="Home Assistant backups to WebDAV, S3, and Backblaze B2" \
     io.hass.type="addon" \
-    io.hass.version="1.0.0"
+    io.hass.version="1.1.0"
 
 CMD [ "/run.sh" ]

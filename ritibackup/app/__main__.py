@@ -29,7 +29,11 @@ async def _amain() -> None:
     cfg = Config.load()
     setup_logging(cfg.log_level)
     log = logging.getLogger("ritibackup")
-    log.info("RitiBackup starting. WebDAV target: %s%s", cfg.webdav_url, cfg.remote_dir)
+    enabled = [b["label"] for b in cfg.backends_summary() if b["enabled"]]
+    log.info(
+        "RitiBackup starting. Enabled backends: %s",
+        ", ".join(enabled) if enabled else "(none configured yet)",
+    )
 
     missing = cfg.configured()
     if missing:

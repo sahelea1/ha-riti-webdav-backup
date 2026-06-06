@@ -2,6 +2,21 @@
 
 All notable changes to RitiBackup are documented here.
 
+## 1.1.0
+
+- **Multiple storage backends:** added **S3** (and S3-compatible providers such
+  as MinIO and Wasabi) and **Backblaze B2** alongside WebDAV. Enable one or
+  several backends; every backup is uploaded to all enabled backends.
+- **Optional encryption:** on-device ChaCha20-Poly1305 encryption is now a
+  switch and is **off by default**. With it off, backups are uploaded as plain
+  Home Assistant tarballs (`.tar`); with it on, encrypted `.tar.riti`
+  containers, exactly as before.
+- **Per-backend retention:** the retention policy is applied independently to
+  each enabled backend.
+- **Restore source selection:** choose which backend to pull a backup from when
+  restoring. Plain `.tar` backups restore without a passphrase.
+- **Redesigned UI** for managing encryption and multiple backends.
+
 ## 1.0.0
 
 Initial release.

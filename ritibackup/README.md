@@ -6,23 +6,27 @@
 ![Supports armv7][armv7-shield]
 ![Supports i386][i386-shield]
 
-Encrypted Home Assistant backups to **WebDAV** — on-device
-**ChaCha20-Poly1305** encryption, an automatic every-N-days schedule, smart
-retention (keep your recent backups plus a fortnight archive), and one-click
-decrypt & restore. A bundled standalone tool lets you recover backups even
-without Home Assistant.
+Home Assistant backups to **WebDAV**, **S3**, and **Backblaze B2** (use one or
+many) — with **optional** on-device **ChaCha20-Poly1305** encryption, an
+automatic every-N-days schedule, per-backend smart retention (keep your recent
+backups plus a fortnight archive), and one-click restore. A bundled standalone
+tool lets you recover encrypted backups even without Home Assistant.
 
 ## Highlights
 
-- 🔐 **On-device encryption** — backups are encrypted before they leave the
-  device. Your WebDAV server only ever stores ciphertext.
+- ☁️ **Multiple backends** — WebDAV (Nextcloud, ownCloud, your NAS), **S3** and
+  S3-compatible providers (MinIO, Wasabi), and **Backblaze B2**. Enable one or
+  several; every backup uploads to all of them.
+- 🔐 **Optional on-device encryption** — flip on ChaCha20-Poly1305 to encrypt
+  backups before they leave the device, so your storage only ever holds
+  ciphertext. Off by default.
 - 🗝️ **ChaCha20-Poly1305 STREAM** with scrypt key derivation and a unique salt
   per file.
-- ☁️ **Any WebDAV server** — Nextcloud, ownCloud, your NAS, a hosted box.
 - ⏲️ **Automatic schedule** — every second day at 03:00 by default, fully
   configurable, with catch-up for missed runs.
-- ♻️ **Smart retention** — keep the 4 newest backups plus one from ~2 weeks ago
-  (configurable; optional "bridge" mode keeps the archive fresh).
+- ♻️ **Per-backend smart retention** — keep the 4 newest backups plus one from
+  ~2 weeks ago on each backend (configurable; optional "bridge" mode keeps the
+  archive fresh).
 - ↩️ **One-click restore** — download, decrypt, verify, then import or fully
   restore, all from a polished UI.
 - 🛟 **Disaster recovery** — a dependency-light `riti-decrypt.py` recovers your
@@ -33,8 +37,9 @@ without Home Assistant.
 1. Add this repository to Home Assistant: **Settings → Add-ons → Add-on Store →
    ⋮ → Repositories**, paste the repository URL, **Add**.
 2. Install **RitiBackup** and open its **Configuration** tab.
-3. Set your WebDAV URL, username, password, and a strong
-   `encryption_passphrase`. **Store that passphrase safely — it cannot be
+3. Enable at least one storage backend (WebDAV, S3, or B2) and fill in its
+   details. Optionally turn on `encryption_enabled` and set a strong
+   `encryption_passphrase` — **store that passphrase safely, it cannot be
    recovered.**
 4. Start the addon and open the **Web UI**. Run **Backup now** to confirm
    everything works, then let the schedule take over.

@@ -6,3 +6,9 @@
 # standalone decrypt tool outside the addon (e.g. on a recovery workstation).
 cryptography>=41.0
 aiohttp>=3.9
+
+# Storage backends. In the addon image these are installed with pip on top of
+# the apk packages (see Dockerfile). Listed here for running the app outside the
+# addon.
+boto3>=1.34      # S3 and S3-compatible object storage
+b2sdk>=1.24      # Backblaze B2

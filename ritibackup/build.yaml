@@ -7,6 +7,6 @@ build_from:
   i386: ghcr.io/home-assistant/i386-base:3.19
 labels:
   org.opencontainers.image.title: RitiBackup
-  org.opencontainers.image.description: Encrypted Home Assistant backups to WebDAV
+  org.opencontainers.image.description: Home Assistant backups to WebDAV, S3, and Backblaze B2
   org.opencontainers.image.source: https://github.com/sahelea1/ha-riti-webdav-backup
   org.opencontainers.image.licenses: MIT

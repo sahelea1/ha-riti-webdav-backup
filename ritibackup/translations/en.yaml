@@ -1,5 +1,14 @@
 ---
 configuration:
+  encryption_enabled:
+    name: Encrypt backups
+    description: >-
+      Encrypt backups on-device with ChaCha20-Poly1305 before upload. When off,
+      backups are uploaded as plain Home Assistant tarballs that are readable by
+      anyone with access to the storage. Default off.
+  webdav_enabled:
+    name: Enable WebDAV
+    description: Upload every backup to the WebDAV server configured below.
   webdav_url:
     name: WebDAV URL
     description: >-
@@ -19,11 +28,57 @@ configuration:
     description: >-
       Verify the server's TLS certificate. Disable only for self-signed
       certificates you trust.
+  s3_enabled:
+    name: Enable S3
+    description: >-
+      Upload every backup to the S3 (or S3-compatible) bucket configured below.
+  s3_endpoint_url:
+    name: S3 endpoint URL
+    description: >-
+      Custom endpoint for S3-compatible providers (MinIO, Wasabi, etc.). Leave
+      blank to use AWS S3.
+  s3_region:
+    name: S3 region
+    description: Bucket region, e.g. us-east-1. Optional for some providers.
+  s3_bucket:
+    name: S3 bucket
+    description: Name of the bucket where backups are stored.
+  s3_access_key_id:
+    name: S3 access key ID
+    description: Access key ID for the S3 credentials.
+  s3_secret_access_key:
+    name: S3 secret access key
+    description: Secret access key for the S3 credentials.
+  s3_prefix:
+    name: S3 prefix
+    description: Key prefix (folder) within the bucket. Default RitiBackup.
+  s3_path_style:
+    name: S3 path-style addressing
+    description: >-
+      Use path-style requests (bucket in the URL path). Required by some
+      S3-compatible servers such as MinIO.
+  b2_enabled:
+    name: Enable Backblaze B2
+    description: >-
+      Upload every backup to the Backblaze B2 bucket configured below.
+  b2_key_id:
+    name: B2 application key ID
+    description: The keyID of your Backblaze B2 application key.
+  b2_application_key:
+    name: B2 application key
+    description: The application key secret paired with the key ID.
+  b2_bucket:
+    name: B2 bucket
+    description: Name of the Backblaze B2 bucket where backups are stored.
+  b2_prefix:
+    name: B2 prefix
+    description: Key prefix (folder) within the bucket. Default RitiBackup.
   encryption_passphrase:
     name: Encryption passphrase
     description: >-
-      Secret that protects every backup. Use a long, unique passphrase and store
-      it safely. If lost, backups cannot be recovered.
+      Secret that protects every backup when encryption is enabled. Use a long,
+      unique passphrase and store it safely. If lost, backups cannot be
+      recovered.
   schedule_time:
     name: Backup time
     description: Time of day to run the backup (HH:MM, 24-hour, addon local time).

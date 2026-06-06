@@ -1,13 +1,13 @@
 # RitiBackup
 
-Encrypted Home Assistant backups to **WebDAV**, with on-device
-**ChaCha20-Poly1305** encryption, an automatic schedule, smart retention, and
-one-click decrypt & restore.
+Home Assistant backups to **WebDAV**, **S3**, and **Backblaze B2** — use one or
+several at once — with **optional** on-device **ChaCha20-Poly1305** encryption,
+an automatic schedule, per-backend smart retention, and one-click restore.
 
-Your backups leave the device already encrypted. The WebDAV server (Nextcloud,
-your NAS, a hosted box, anything that speaks WebDAV) only ever sees opaque
-ciphertext. Only your passphrase can unlock them — and you can always unlock
-them yourself, even without Home Assistant, using the bundled standalone tool.
+Enable as many storage backends as you like; every backup is uploaded to all of
+them. With encryption turned on, backups leave the device already encrypted and
+your storage only ever sees opaque ciphertext that only your passphrase can
+unlock (even without Home Assistant, via the bundled standalone tool).
 
 ---
 
@@ -17,41 +17,80 @@ On each scheduled run RitiBackup:
 
 1. Asks the Supervisor to create a **full** Home Assistant backup (the normal
    `.tar`).
-2. **Encrypts** that tar on-device with ChaCha20-Poly1305 (streamed in chunks,
-   so even multi-gigabyte backups never blow up memory).
-3. **Uploads** the encrypted `*.tar.riti` file to your WebDAV server.
-4. Deletes the local copies (the plain Supervisor backup and, by default, the
-   local encrypted file) so nothing sensitive lingers on the device.
-5. Applies **retention** on the WebDAV server, deleting backups you no longer
-   want to keep.
+2. If encryption is enabled, **encrypts** that tar on-device with
+   ChaCha20-Poly1305 (streamed in chunks, so even multi-gigabyte backups never
+   blow up memory) into a `*.tar.riti` container. If encryption is off, the
+   plain `*.tar` is uploaded as-is.
+3. **Uploads** the file to **every enabled backend** (WebDAV, S3, B2).
+4. Deletes the local copies (the plain Supervisor backup and, by default, any
+   temporary encrypted file) so nothing lingers on the device.
+5. Applies **retention** independently on **each** backend, deleting backups you
+   no longer want to keep.
 
 A polished web UI (open it from the addon's **Open Web UI** button / sidebar
-panel) lets you watch live progress, browse what's on the server, run a backup
-on demand, and restore any backup with a couple of clicks.
+panel) lets you watch live progress, browse what's on each backend, run a backup
+on demand, and restore any backup — picking which backend to pull it from — with
+a couple of clicks.
 
 ---
+
+## Storage backends
+
+Enable **one or more** backends. Every backup is uploaded to **all enabled**
+backends, and retention is applied to each backend separately. At least one
+backend must be enabled before backups can run.
 
 ## Configuration
 
 Set these in the addon's **Configuration** tab.
 
+### Encryption (optional)
+
+| Option | Meaning |
+| --- | --- |
+| `encryption_enabled` | Turn on-device ChaCha20-Poly1305 encryption on or off. **Default `false`.** When **off**, backups are uploaded as plain Home Assistant tarballs — anyone with access to the storage can read them. Turn it **on** for zero-knowledge storage |
+| `encryption_passphrase` | Required when encryption is enabled. **The secret that protects every backup.** Choose a long, unique passphrase and store it somewhere safe (a password manager). **If you lose it, your encrypted backups are unrecoverable — by design.** |
+| `kdf_n_log2` | scrypt cost as a power of two (N = 2^value). Default `16` (~64 MiB). Higher = slower to derive the key on every device, more resistant to brute force |
+| `chunk_size_kib` | Streaming chunk size in KiB. Default `64`. Rarely needs changing |
+
+> **Unencrypted backups are readable on the server.** If you leave
+> `encryption_enabled` off, treat your storage as trusted — the `.tar` files are
+> ordinary Home Assistant backups with no protection beyond your storage
+> provider's access controls.
+
 ### WebDAV
 
 | Option | Meaning |
 | --- | --- |
+| `webdav_enabled` | Enable the WebDAV backend. Default `false` |
 | `webdav_url` | Base URL of your WebDAV server, e.g. `https://nas.example.com/remote.php/dav/files/me` |
 | `webdav_username` | WebDAV username |
 | `webdav_password` | WebDAV password (use an app password where possible) |
 | `webdav_path` | Folder on the server for backups (created if missing). Default `/RitiBackup` |
 | `webdav_verify_ssl` | Verify the server's TLS certificate. Turn off only for self-signed certs you trust |
 
-### Encryption
+### S3 (and S3-compatible)
 
 | Option | Meaning |
 | --- | --- |
-| `encryption_passphrase` | **The secret that protects every backup.** Choose a long, unique passphrase and store it somewhere safe (a password manager). **If you lose it, your backups are unrecoverable — by design.** |
-| `kdf_n_log2` | scrypt cost as a power of two (N = 2^value). Default `16` (~64 MiB). Higher = slower to derive the key on every device, more resistant to brute force |
-| `chunk_size_kib` | Streaming chunk size in KiB. Default `64`. Rarely needs changing |
+| `s3_enabled` | Enable the S3 backend. Default `false` |
+| `s3_endpoint_url` | Custom endpoint for S3-compatible providers (MinIO, Wasabi, etc.). Blank = AWS S3 |
+| `s3_region` | Bucket region, e.g. `us-east-1` (optional for some providers) |
+| `s3_bucket` | Bucket name where backups are stored |
+| `s3_access_key_id` | Access key ID |
+| `s3_secret_access_key` | Secret access key |
+| `s3_prefix` | Key prefix (folder) within the bucket. Default `RitiBackup` |
+| `s3_path_style` | Use path-style addressing. Required by some S3-compatible servers (e.g. MinIO). Default `false` |
+
+### Backblaze B2
+
+| Option | Meaning |
+| --- | --- |
+| `b2_enabled` | Enable the Backblaze B2 backend. Default `false` |
+| `b2_key_id` | Application key ID (keyID) |
+| `b2_application_key` | Application key secret |
+| `b2_bucket` | Bucket name where backups are stored |
+| `b2_prefix` | Key prefix (folder) within the bucket. Default `RitiBackup` |
 
 ### Schedule
 
@@ -63,7 +102,9 @@ Set these in the addon's **Configuration** tab.
 
 ### Retention
 
-RitiBackup keeps a small, predictable set of backups on the server:
+RitiBackup keeps a small, predictable set of backups. The policy is applied
+**independently to each enabled backend**, so every backend ends up with the
+same retained set:
 
 | Option | Meaning |
 | --- | --- |
@@ -85,8 +126,8 @@ backup from about two weeks ago** — five files on the server at steady state.
 | Option | Meaning |
 | --- | --- |
 | `backup_name_prefix` | Filename prefix on the server. Default `RitiBackup` |
-| `delete_local_after_upload` | Remove the local encrypted copy after a successful upload. Default `true` |
-| `compress_supervisor_backup` | Ask the Supervisor to gzip the backup before encryption. Default `true` |
+| `delete_local_after_upload` | Remove the local Supervisor backup after a successful upload. Default `true` |
+| `compress_supervisor_backup` | Ask the Supervisor to gzip the backup. Default `true` |
 | `log_level` | `trace`, `debug`, `info`, `notice`, `warning`, `error`, or `fatal` |
 
 ---
@@ -96,9 +137,12 @@ backup from about two weeks ago** — five files on the server at steady state.
 ### From the UI (easiest)
 
 1. Open the RitiBackup web UI.
-2. In **Remote backups**, find the backup you want and press **Restore**.
-3. Enter your passphrase. RitiBackup downloads the file, decrypts and verifies
-   it on-device, and hands the plain backup to the Supervisor.
+2. In **Remote backups**, find the backup you want (each entry shows which
+   backend it lives on) and press **Restore**.
+3. For an encrypted backup (`.tar.riti`), enter your passphrase. RitiBackup
+   downloads the file from the selected backend, decrypts and verifies it
+   on-device, and hands the plain backup to the Supervisor. Plain `.tar`
+   backups need no passphrase and are imported directly.
 4. Choose either:
    - **Import only** — the backup appears in Home Assistant's normal Backups
      list so you can restore selectively, or
@@ -152,8 +196,9 @@ Keep a copy alongside your passphrase.
 
 ## Troubleshooting
 
-- **"Not fully configured" banner** — fill in the WebDAV URL/credentials and an
-  encryption passphrase in the Configuration tab, then save and restart.
+- **"Not fully configured" banner** — enable at least one storage backend and
+  fill in its required fields (and, if encryption is enabled, a passphrase) in
+  the Configuration tab, then save and restart.
 - **TLS errors** — if you use a self-signed certificate, set
   `webdav_verify_ssl: false` (only if you trust the network/server).
 - **Connection test fails** — confirm the URL is the WebDAV *files* endpoint

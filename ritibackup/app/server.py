@@ -10,12 +10,14 @@ from datetime import datetime, timezone
 from aiohttp import web
 
 from .config import Config, State, iso, now_utc
-from .jobs import JobManager, parse_remote_time
+from .jobs import JobManager, is_encrypted_name, parse_remote_time
 from .scheduler import Scheduler
 
 log = logging.getLogger("ritibackup.server")
 
 WEB_DIR = os.path.join(os.path.dirname(__file__), "web")
+
+BACKEND_LABELS = {"webdav": "WebDAV", "s3": "S3", "b2": "Backblaze B2"}
 
 
 def _human(n: int) -> str:
@@ -72,13 +74,16 @@ class Server:
             ha_version = info.get("homeassistant", "")
         except Exception:  # noqa: BLE001
             sv_ok = False
+        missing = self.cfg.configured()
         return web.json_response(
             {
                 "now": iso(now_utc()),
                 "supervisor_ok": sv_ok,
                 "ha_version": ha_version,
-                "configured": not self.cfg.configured(),
-                "missing": self.cfg.configured(),
+                "configured": not missing,
+                "missing": missing,
+                "encryption_enabled": bool(self.cfg.encryption_enabled),
+                "backends": self.cfg.backends_summary(),
                 "last_backup_at": self.state.last_backup_at,
                 "last_result": self.state.last_result,
                 "last_message": self.state.last_message,
@@ -102,9 +107,11 @@ class Server:
 
     async def api_backups(self, request: web.Request) -> web.Response:
         try:
-            files = await self.jobs.list_remote()
+            files, errors = await self.jobs.list_remote()
         except Exception as exc:  # noqa: BLE001
-            return web.json_response({"ok": False, "error": str(exc)}, status=200)
+            return web.json_response(
+                {"ok": False, "backups": [], "errors": [], "error": str(exc)}
+            )
         items = []
         for f in files:
             ts = parse_remote_time(f.name) or f.modified
@@ -114,17 +121,24 @@ class Server:
                     "size": f.size,
                     "size_h": _human(f.size),
                     "timestamp": iso(ts) if ts else None,
+                    "backend": f.backend,
+                    "backend_label": BACKEND_LABELS.get(f.backend, f.backend),
+                    "encrypted": is_encrypted_name(f.name),
                 }
             )
         items.sort(key=lambda x: x["timestamp"] or "", reverse=True)
-        return web.json_response({"ok": True, "backups": items})
+        return web.json_response({"ok": True, "backups": items, "errors": errors})
 
     async def api_test(self, request: web.Request) -> web.Response:
         try:
-            res = await self.jobs.test_connection()
-            return web.json_response(res)
+            results = await self.jobs.test_backends()
         except Exception as exc:  # noqa: BLE001
-            return web.json_response({"ok": False, "error": str(exc)})
+            return web.json_response({"ok": False, "results": [], "error": str(exc)})
+        if not results:
+            return web.json_response(
+                {"ok": False, "results": [], "error": "No backends enabled"}
+            )
+        return web.json_response({"ok": True, "results": results})
 
     async def api_backup(self, request: web.Request) -> web.Response:
         if self.jobs.status.active:
@@ -148,12 +162,17 @@ class Server:
             return web.json_response({"ok": False, "error": "A job is already running"})
         body = await request.json()
         name = body.get("name")
+        backend = body.get("backend")
         passphrase = body.get("passphrase") or self.cfg.encryption_passphrase
         trigger = bool(body.get("trigger_restore", False))
         if not name:
             return web.json_response({"ok": False, "error": "No backup selected"})
+        if not backend:
+            return web.json_response({"ok": False, "error": "No backend selected"})
         self._spawn(
-            self.jobs.run_restore(name, passphrase, trigger_restore=trigger)
+            self.jobs.run_restore(
+                name, backend, passphrase, trigger_restore=trigger
+            )
         )
         return web.json_response({"ok": True, "started": True})
 
