@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>RitiBackup</title>
+<style>
+  :root {
+    --bg:#0c0e11; --panel:#14171c; --panel-2:#191d23; --line:#252b33;
+    --ink:#ece7dd; --muted:#8b929c; --faint:#5c636d;
+    --copper:#d2823f; --copper-bright:#eaa05a; --copper-deep:#a85f29;
+    --ok:#5fb87a; --warn:#e0b15a; --bad:#d8604c; --enc:#6fb3c9;
+    --radius:16px; --radius-sm:10px;
+    --mono:ui-monospace,"SFMono-Regular","JetBrains Mono","Cascadia Code",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,"Helvetica Neue",sans-serif;
+  }
+  * { box-sizing:border-box; }
+  html,body { margin:0; padding:0; }
+  body {
+    background:
+      radial-gradient(1100px 520px at 82% -8%, rgba(210,130,63,.16), transparent 60%),
+      radial-gradient(800px 600px at -5% 10%, rgba(111,179,201,.06), transparent 55%),
+      var(--bg);
+    color:var(--ink); font-family:var(--sans); line-height:1.5;
+    -webkit-font-smoothing:antialiased; min-height:100vh;
+  }
+  body::before{
+    content:""; position:fixed; inset:0; pointer-events:none; opacity:.035; z-index:0;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  .wrap { position:relative; z-index:1; max-width:1020px; margin:0 auto; padding:26px 20px 70px; }
+
+  /* Header */
+  header { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:26px; }
+  .brand { display:flex; align-items:center; gap:13px; }
+  .logo { width:42px; height:42px; flex:none; filter:drop-shadow(0 4px 12px rgba(210,130,63,.35)); }
+  .brand h1 { font-size:23px; margin:0; letter-spacing:-.4px; font-weight:680; }
+  .brand h1 span { color:var(--copper-bright); }
+  .brand .tag { font-size:12px; color:var(--faint); letter-spacing:.16em; text-transform:uppercase; margin-top:2px; }
+  .conn { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--muted);
+    background:var(--panel); border:1px solid var(--line); padding:7px 13px; border-radius:99px; }
+  .dot { width:8px; height:8px; border-radius:50%; background:var(--faint); box-shadow:0 0 0 0 rgba(95,184,122,.5); }
+  .dot.ok { background:var(--ok); animation:pulse 2.4s infinite; }
+  .dot.bad { background:var(--bad); }
+  @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(95,184,122,.45);} 70%{box-shadow:0 0 0 7px rgba(95,184,122,0);} 100%{box-shadow:0 0 0 0 rgba(95,184,122,0);} }
+
+  /* Cards */
+  .grid { display:grid; grid-template-columns:1.35fr 1fr; gap:16px; }
+  @media (max-width:760px){ .grid { grid-template-columns:1fr; } header{flex-direction:column;align-items:flex-start;} }
+  .card {
+    background:linear-gradient(180deg, var(--panel-2), var(--panel));
+    border:1px solid var(--line); border-radius:var(--radius); padding:20px 22px;
+    box-shadow:0 12px 30px -18px rgba(0,0,0,.8);
+  }
+  .card h2 { font-size:12px; letter-spacing:.16em; text-transform:uppercase; color:var(--faint);
+    margin:0 0 14px; font-weight:600; }
+
+  .statusline { display:flex; align-items:baseline; gap:10px; }
+  .big { font-size:30px; font-weight:680; letter-spacing:-.5px; }
+  .countdown { font-family:var(--mono); font-size:15px; color:var(--copper-bright); }
+  .kv { display:flex; justify-content:space-between; padding:9px 0; border-bottom:1px dashed var(--line); font-size:14px; }
+  .kv:last-child { border-bottom:0; }
+  .kv .k { color:var(--muted); }
+  .kv .v { font-family:var(--mono); font-size:13px; }
+
+  .badge { display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:600;
+    padding:4px 10px; border-radius:99px; border:1px solid; }
+  .badge.ok { color:var(--ok); border-color:rgba(95,184,122,.4); background:rgba(95,184,122,.08); }
+  .badge.bad { color:var(--bad); border-color:rgba(216,96,76,.4); background:rgba(216,96,76,.08); }
+  .badge.warn { color:var(--warn); border-color:rgba(224,177,90,.4); background:rgba(224,177,90,.08); }
+  .badge.enc { color:var(--enc); border-color:rgba(111,179,201,.4); background:rgba(111,179,201,.08); }
+
+  /* Policy timeline */
+  .timeline { display:flex; align-items:center; gap:6px; margin:6px 0 4px; flex-wrap:wrap; }
+  .node { display:flex; flex-direction:column; align-items:center; gap:6px; }
+  .node .ring { width:26px; height:26px; border-radius:50%; border:2px solid var(--copper);
+    display:grid; place-items:center; color:var(--copper-bright); font-size:11px; font-family:var(--mono); }
+  .node.arch .ring { border-color:var(--enc); color:var(--enc); border-style:dashed; }
+  .node small { font-size:10px; color:var(--faint); }
+  .connector { flex:1; height:2px; min-width:14px; background:linear-gradient(90deg,var(--copper-deep),var(--line)); border-radius:2px; }
+
+  /* Buttons */
+  .actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:18px; }
+  button { font-family:inherit; font-size:14px; font-weight:600; cursor:pointer; border-radius:var(--radius-sm);
+    padding:11px 16px; border:1px solid var(--line); background:var(--panel-2); color:var(--ink);
+    transition:transform .08s ease, border-color .15s ease, background .15s ease; }
+  button:hover:not(:disabled){ border-color:var(--copper-deep); transform:translateY(-1px); }
+  button:active:not(:disabled){ transform:translateY(0); }
+  button:disabled{ opacity:.45; cursor:not-allowed; }
+  button.primary { background:linear-gradient(180deg,var(--copper-bright),var(--copper));
+    border-color:var(--copper-deep); color:#1a0f06; box-shadow:0 8px 22px -10px rgba(210,130,63,.7); }
+  button.ghost { background:transparent; }
+  button.danger { color:var(--bad); border-color:rgba(216,96,76,.35); }
+  button.sm { padding:7px 12px; font-size:13px; }
+
+  /* Job panel */
+  #jobpanel { margin-top:16px; display:none; }
+  #jobpanel.show { display:block; animation:slidein .25s ease; }
+  @keyframes slidein { from{opacity:0;transform:translateY(6px);} to{opacity:1;transform:none;} }
+  .progress { height:9px; background:#0a0c0f; border:1px solid var(--line); border-radius:99px; overflow:hidden; margin:10px 0; }
+  .progress > i { display:block; height:100%; width:0%;
+    background:linear-gradient(90deg,var(--copper),var(--copper-bright)); transition:width .4s ease;
+    box-shadow:0 0 12px rgba(210,130,63,.6); }
+  .progress.indet > i { width:35% !important; animation:indet 1.3s ease-in-out infinite; }
+  @keyframes indet { 0%{margin-left:-35%;} 100%{margin-left:100%;} }
+  .joblog { font-family:var(--mono); font-size:12px; color:var(--muted); background:#0a0c0f;
+    border:1px solid var(--line); border-radius:var(--radius-sm); padding:11px 13px; max-height:150px;
+    overflow:auto; white-space:pre-wrap; margin-top:8px; }
+  .step { font-size:14px; color:var(--copper-bright); font-weight:600; }
+
+  /* Tables / lists */
+  .full { grid-column:1 / -1; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th { text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.1em; color:var(--faint);
+    font-weight:600; padding:8px 10px; border-bottom:1px solid var(--line); }
+  td { padding:11px 10px; border-bottom:1px solid var(--line); }
+  td.mono, .mono { font-family:var(--mono); font-size:13px; }
+  tr:last-child td { border-bottom:0; }
+  tr.keep-arch td:first-child { box-shadow:inset 3px 0 0 var(--enc); }
+  .empty { color:var(--faint); padding:18px 4px; font-size:14px; }
+  .hist-row { display:flex; align-items:center; gap:12px; padding:10px 0; border-bottom:1px dashed var(--line); font-size:13.5px; }
+  .hist-row:last-child{ border-bottom:0; }
+  .hist-row .when { font-family:var(--mono); font-size:12px; color:var(--muted); min-width:128px; }
+  .hist-row .msg { color:var(--muted); margin-left:auto; font-size:12.5px; }
+
+  /* Banner */
+  .banner { background:rgba(224,177,90,.08); border:1px solid rgba(224,177,90,.35); color:#f0d49a;
+    border-radius:var(--radius); padding:14px 18px; margin-bottom:18px; font-size:14px; display:none; }
+  .banner.show { display:block; }
+  .banner b { color:var(--warn); }
+  .banner code { font-family:var(--mono); background:rgba(0,0,0,.3); padding:1px 6px; border-radius:5px; }
+
+  /* Modal */
+  .overlay { position:fixed; inset:0; background:rgba(4,5,7,.72); backdrop-filter:blur(3px);
+    display:none; align-items:center; justify-content:center; z-index:50; padding:18px; }
+  .overlay.show { display:flex; }
+  .modal { background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
+    width:100%; max-width:480px; padding:24px; box-shadow:0 30px 70px -20px #000; animation:slidein .2s ease; }
+  .modal h3 { margin:0 0 4px; font-size:18px; }
+  .modal p { color:var(--muted); font-size:13.5px; margin:0 0 16px; }
+  .modal .fname { font-family:var(--mono); color:var(--copper-bright); font-size:13px; word-break:break-all; }
+  label.fld { display:block; font-size:13px; color:var(--muted); margin:14px 0 6px; }
+  input[type=password], input[type=text] { width:100%; padding:11px 13px; border-radius:var(--radius-sm);
+    border:1px solid var(--line); background:#0a0c0f; color:var(--ink); font-family:var(--mono); font-size:14px; }
+  input:focus { outline:none; border-color:var(--copper); }
+  .check { display:flex; gap:10px; align-items:flex-start; margin-top:16px; font-size:13.5px; color:var(--ink); }
+  .check input { margin-top:3px; }
+  .check small { color:var(--faint); display:block; }
+  .modal .row { display:flex; gap:10px; justify-content:flex-end; margin-top:22px; }
+  .toast { position:fixed; bottom:22px; left:50%; transform:translateX(-50%) translateY(20px);
+    background:var(--panel-2); border:1px solid var(--line); color:var(--ink); padding:12px 18px;
+    border-radius:99px; font-size:14px; opacity:0; transition:.3s; z-index:60; box-shadow:0 12px 30px -12px #000; }
+  .toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+  .toast.bad { border-color:rgba(216,96,76,.5); }
+  .toast.ok { border-color:rgba(95,184,122,.5); }
+  footer { text-align:center; color:var(--faint); font-size:12px; margin-top:34px; }
+  footer code { font-family:var(--mono); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <svg class="logo" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M24 3 6 10v12c0 11 7.6 18.6 18 23 10.4-4.4 18-12 18-23V10L24 3Z"
+              fill="url(#g)" stroke="#a85f29" stroke-width="1.4"/>
+        <path d="M24 16a5 5 0 0 0-5 5v2h-1.4A1.6 1.6 0 0 0 16 24.6v8.8A1.6 1.6 0 0 0 17.6 35h12.8a1.6 1.6 0 0 0 1.6-1.6v-8.8A1.6 1.6 0 0 0 30.4 23H29v-2a5 5 0 0 0-5-5Zm-2.4 7v-2a2.4 2.4 0 0 1 4.8 0v2h-4.8Z"
+              fill="#1a0f06"/>
+        <defs><linearGradient id="g" x1="6" y1="3" x2="42" y2="45" gradientUnits="userSpaceOnUse">
+          <stop stop-color="#eaa05a"/><stop offset="1" stop-color="#c8743a"/></linearGradient></defs>
+      </svg>
+      <div>
+        <h1>Riti<span>Backup</span></h1>
+        <div class="tag">Encrypted&nbsp;·&nbsp;WebDAV&nbsp;·&nbsp;ChaCha20-Poly1305</div>
+      </div>
+    </div>
+    <div class="conn"><span id="connDot" class="dot"></span><span id="connText">Connecting…</span></div>
+  </header>
+
+  <div id="banner" class="banner"></div>
+
+  <div class="grid">
+    <!-- Status -->
+    <div class="card">
+      <h2>Status</h2>
+      <div class="statusline">
+        <span id="resultBadge" class="badge warn">Idle</span>
+      </div>
+      <div style="margin-top:14px">
+        <div class="kv"><span class="k">Last backup</span><span class="v" id="lastBackup">—</span></div>
+        <div class="kv"><span class="k">Next scheduled</span><span class="v countdown" id="nextRun">—</span></div>
+        <div class="kv"><span class="k">Last message</span><span class="v" id="lastMsg" style="max-width:60%;text-align:right">—</span></div>
+      </div>
+      <div class="actions">
+        <button class="primary" id="btnBackup">⛨ Back up now</button>
+        <button class="ghost sm" id="btnTest">Test WebDAV</button>
+        <button class="ghost sm" id="btnRetention">Run retention</button>
+      </div>
+
+      <div id="jobpanel">
+        <div class="step" id="jobStep">Working…</div>
+        <div class="progress" id="prog"><i id="progBar"></i></div>
+        <div class="joblog" id="jobLog"></div>
+      </div>
+    </div>
+
+    <!-- Policy -->
+    <div class="card">
+      <h2>Retention policy</h2>
+      <div id="policyDesc" style="font-size:14px;color:var(--muted);margin-bottom:14px"></div>
+      <div class="timeline" id="timeline"></div>
+      <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+        <span class="badge enc">🔒 Encrypted on-device</span>
+        <span class="badge ok" id="bridgeBadge" style="display:none">Bridge mode</span>
+      </div>
+    </div>
+
+    <!-- Remote backups -->
+    <div class="card full">
+      <h2>Backups on WebDAV</h2>
+      <div id="backupsBox">
+        <div class="empty">Loading…</div>
+      </div>
+    </div>
+
+    <!-- History -->
+    <div class="card full">
+      <h2>Recent activity</h2>
+      <div id="historyBox"><div class="empty">No activity yet.</div></div>
+    </div>
+  </div>
+
+  <footer>
+    RitiBackup <code id="ver">v1.0.0</code> · backups are sealed locally before they ever leave this device ·
+    keep your passphrase safe — without it, backups cannot be recovered.
+  </footer>
+</div>
+
+<!-- Restore modal -->
+<div class="overlay" id="overlay">
+  <div class="modal">
+    <h3>Restore backup</h3>
+    <p>Decrypt and import this backup back into Home Assistant.</p>
+    <div class="fname" id="modalName"></div>
+    <label class="fld" for="passInput">Passphrase</label>
+    <input type="password" id="passInput" placeholder="Leave blank to use the configured passphrase" autocomplete="off" />
+    <div class="check">
+      <input type="checkbox" id="triggerRestore" />
+      <label for="triggerRestore">Immediately perform a full restore
+        <small>Home Assistant will reboot and roll back to this backup. Leave unchecked to only decrypt &amp; import, then restore manually from Settings → System → Backups.</small>
+      </label>
+    </div>
+    <div class="row">
+      <button class="ghost" id="cancelRestore">Cancel</button>
+      <button class="primary" id="confirmRestore">Restore</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+let polling = null, jobPolling = null, lastJobActive = false;
+
+function api(path, opts){ return fetch(path.replace(/^\//,''), opts).then(r=>r.json()); }
+function toast(msg, kind='ok'){ const t=$('#toast'); t.textContent=msg; t.className='toast show '+kind;
+  setTimeout(()=>t.className='toast',3200); }
+
+function fmtAge(iso){
+  if(!iso) return '—';
+  const d = new Date(iso), now = new Date(), s = (now-d)/1000;
+  if (s < 0) { // future
+    const a=-s; if(a<3600) return 'in '+Math.round(a/60)+' min';
+    if(a<86400) return 'in '+Math.round(a/3600)+' h'; return 'in '+Math.round(a/86400)+' d';
+  }
+  if(s<90) return 'just now'; if(s<5400) return Math.round(s/60)+' min ago';
+  if(s<172800) return Math.round(s/3600)+' h ago'; return Math.round(s/86400)+' days ago';
+}
+function fmtLocal(iso){ if(!iso) return '—'; const d=new Date(iso);
+  return d.toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}); }
+
+async function refreshStatus(){
+  let s; try { s = await api('api/status'); } catch(e){ setConn(false); return; }
+  setConn(s.supervisor_ok, s.ha_version);
+  // result badge
+  const rb = $('#resultBadge');
+  if (s.last_result==='success'){ rb.className='badge ok'; rb.textContent='Healthy'; }
+  else if (s.last_result==='failed'){ rb.className='badge bad'; rb.textContent='Last run failed'; }
+  else { rb.className='badge warn'; rb.textContent='Awaiting first backup'; }
+  $('#lastBackup').textContent = s.last_backup_at ? fmtLocal(s.last_backup_at)+'  ('+fmtAge(s.last_backup_at)+')' : 'never';
+  $('#nextRun').textContent = s.next_run_at ? fmtLocal(s.next_run_at)+'  ('+fmtAge(s.next_run_at)+')' : '—';
+  $('#lastMsg').textContent = s.last_message || '—';
+
+  // banner
+  const b = $('#banner');
+  if (!s.configured){
+    b.className='banner show';
+    b.innerHTML = '<b>Setup needed.</b> Missing: <code>'+s.missing.join('</code>, <code>')+
+      '</code>. Open the addon\'s <b>Configuration</b> tab, set your WebDAV server and an encryption passphrase, then restart.';
+  } else { b.className='banner'; }
+
+  renderPolicy(s.policy);
+  renderHistory(s.history);
+}
+
+function renderPolicy(p){
+  $('#policyDesc').innerHTML =
+    'Every <b>'+p.interval_days+' day'+(p.interval_days>1?'s':'')+'</b> at <b>'+p.schedule_time+'</b>. '+
+    'Keep the <b>'+p.keep_recent+'</b> newest, plus <b>one</b> backup from ~<b>'+p.archive_age_days+' days</b> ago.';
+  const tl = $('#timeline'); tl.innerHTML='';
+  for(let i=0;i<p.keep_recent;i++){
+    const n=document.createElement('div'); n.className='node';
+    n.innerHTML='<div class="ring">'+(i*p.interval_days)+'d</div><small>'+(i===0?'newest':'')+'</small>';
+    tl.appendChild(n);
+    const c=document.createElement('div'); c.className='connector'; tl.appendChild(c);
+  }
+  const arch=document.createElement('div'); arch.className='node arch';
+  arch.innerHTML='<div class="ring">'+p.archive_age_days+'d</div><small>archive</small>';
+  tl.appendChild(arch);
+  $('#bridgeBadge').style.display = p.keep_bridge ? 'inline-flex':'none';
+}
+
+function renderHistory(hist){
+  const box=$('#historyBox');
+  if(!hist || !hist.length){ box.innerHTML='<div class="empty">No activity yet.</div>'; return; }
+  box.innerHTML='';
+  hist.forEach(h=>{
+    const row=document.createElement('div'); row.className='hist-row';
+    const badge = h.status==='success'?'<span class="badge ok">ok</span>'
+      : h.status==='failed'?'<span class="badge bad">failed</span>'
+      : '<span class="badge warn">running</span>';
+    row.innerHTML='<span class="when">'+fmtLocal(h.timestamp)+'</span>'+badge+
+      '<span>'+(h.kind||'')+(h.encrypted_size?(' · '+human(h.encrypted_size)):'')+'</span>'+
+      '<span class="msg">'+(h.message||'')+'</span>';
+    box.appendChild(row);
+  });
+}
+
+function human(n){ let f=n; const u=['B','KB','MB','GB','TB']; let i=0;
+  while(f>=1024 && i<u.length-1){ f/=1024; i++; } return (i?f.toFixed(1):f)+' '+u[i]; }
+
+async function refreshBackups(){
+  const box=$('#backupsBox');
+  let r; try { r = await api('api/backups'); } catch(e){ box.innerHTML='<div class="empty">Could not reach the addon.</div>'; return; }
+  if(!r.ok){ box.innerHTML='<div class="empty">WebDAV not reachable yet — '+(r.error||'')+'</div>'; return; }
+  if(!r.backups.length){ box.innerHTML='<div class="empty">No backups uploaded yet. Hit “Back up now” to create your first one.</div>'; return; }
+  let html='<table><thead><tr><th>Backup</th><th>When</th><th>Size</th><th></th></tr></thead><tbody>';
+  r.backups.forEach(b=>{
+    html+='<tr><td class="mono">🔒 '+b.name+'</td><td>'+fmtLocal(b.timestamp)+'<br><span style="color:var(--faint);font-size:12px">'+fmtAge(b.timestamp)+'</span></td>'+
+      '<td class="mono">'+b.size_h+'</td>'+
+      '<td style="text-align:right"><button class="sm ghost" data-restore="'+encodeURIComponent(b.name)+'">Restore</button></td></tr>';
+  });
+  html+='</tbody></table>';
+  box.innerHTML=html;
+  box.querySelectorAll('[data-restore]').forEach(btn=>{
+    btn.onclick=()=>openRestore(decodeURIComponent(btn.dataset.restore));
+  });
+}
+
+function setConn(ok, ver){
+  $('#connDot').className='dot '+(ok?'ok':'bad');
+  $('#connText').textContent = ok ? ('Supervisor connected'+(ver?(' · HA '+ver):'')) : 'Supervisor unreachable';
+}
+
+/* Job polling */
+function startJobPolling(){
+  if(jobPolling) return;
+  $('#jobpanel').classList.add('show');
+  jobPolling=setInterval(pollJob, 1400); pollJob();
+}
+async function pollJob(){
+  let j; try { j = await api('api/job'); } catch(e){ return; }
+  $('#jobStep').textContent = j.step || 'Working…';
+  const bar=$('#progBar'), prog=$('#prog');
+  if(j.progress>0){ prog.classList.remove('indet'); bar.style.width=(j.progress*100)+'%'; }
+  else { prog.classList.add('indet'); }
+  $('#jobLog').textContent = (j.log||[]).join('\n');
+  $('#jobLog').scrollTop = $('#jobLog').scrollHeight;
+  if(!j.active && lastJobActive){
+    // finished
+    setButtons(false);
+    if(j.result==='success') toast(j.message||'Done','ok'); else toast(j.message||'Failed','bad');
+    clearInterval(jobPolling); jobPolling=null;
+    setTimeout(()=>$('#jobpanel').classList.remove('show'), j.result==='success'?1800:6000);
+    refreshStatus(); refreshBackups();
+  }
+  lastJobActive = j.active;
+  if(j.active){ setButtons(true); }
+}
+function setButtons(busy){
+  ['#btnBackup','#btnTest','#btnRetention','#confirmRestore'].forEach(s=>{ const e=$(s); if(e) e.disabled=busy; });
+}
+
+/* Actions */
+$('#btnBackup').onclick=async()=>{
+  setButtons(true); lastJobActive=true;
+  const r=await api('api/backup',{method:'POST'});
+  if(!r.ok){ toast(r.error||'Could not start','bad'); setButtons(false); return; }
+  startJobPolling();
+};
+$('#btnTest').onclick=async()=>{
+  $('#btnTest').disabled=true; toast('Testing WebDAV…');
+  const r=await api('api/test',{method:'POST'});
+  $('#btnTest').disabled=false;
+  if(r.ok) toast('WebDAV OK — '+r.backups+' backup(s) found','ok'); else toast('WebDAV failed: '+(r.error||''),'bad');
+  refreshBackups();
+};
+$('#btnRetention').onclick=async()=>{
+  $('#btnRetention').disabled=true; toast('Applying retention…');
+  const r=await api('api/retention',{method:'POST'});
+  $('#btnRetention').disabled=false;
+  if(r.ok) toast('Pruned '+r.pruned+' backup(s)','ok'); else toast(r.error||'Failed','bad');
+  refreshBackups();
+};
+
+/* Restore modal */
+let restoreTarget=null;
+function openRestore(name){ restoreTarget=name; $('#modalName').textContent=name;
+  $('#passInput').value=''; $('#triggerRestore').checked=false; $('#overlay').classList.add('show'); }
+$('#cancelRestore').onclick=()=>$('#overlay').classList.remove('show');
+$('#overlay').onclick=e=>{ if(e.target===$('#overlay')) $('#overlay').classList.remove('show'); };
+$('#confirmRestore').onclick=async()=>{
+  if($('#triggerRestore').checked &&
+     !confirm('This will reboot Home Assistant and roll it back to the selected backup. Continue?')) return;
+  const body={ name:restoreTarget, passphrase:$('#passInput').value,
+    trigger_restore:$('#triggerRestore').checked };
+  $('#overlay').classList.remove('show');
+  setButtons(true); lastJobActive=true;
+  const r=await api('api/restore',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  if(!r.ok){ toast(r.error||'Could not start restore','bad'); setButtons(false); return; }
+  startJobPolling();
+};
+
+/* init */
+async function init(){
+  await refreshStatus(); await refreshBackups();
+  // if a job is already running (e.g. after page reload), attach
+  const j=await api('api/job'); if(j.active){ lastJobActive=true; startJobPolling(); }
+  polling=setInterval(refreshStatus, 5000);
+}
+init();
+</script>
+</body>
+</html>

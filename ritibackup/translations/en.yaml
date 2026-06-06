@@ -1,0 +1,70 @@
+---
+configuration:
+  webdav_url:
+    name: WebDAV URL
+    description: >-
+      Base URL of your WebDAV server's files endpoint, e.g.
+      https://nas.example.com/remote.php/dav/files/me
+  webdav_username:
+    name: WebDAV username
+    description: Username used to authenticate to the WebDAV server.
+  webdav_password:
+    name: WebDAV password
+    description: Password (or app password) for the WebDAV user.
+  webdav_path:
+    name: Remote folder
+    description: Folder on the server where backups are stored. Created if missing.
+  webdav_verify_ssl:
+    name: Verify TLS certificate
+    description: >-
+      Verify the server's TLS certificate. Disable only for self-signed
+      certificates you trust.
+  encryption_passphrase:
+    name: Encryption passphrase
+    description: >-
+      Secret that protects every backup. Use a long, unique passphrase and store
+      it safely. If lost, backups cannot be recovered.
+  schedule_time:
+    name: Backup time
+    description: Time of day to run the backup (HH:MM, 24-hour, addon local time).
+  schedule_interval_days:
+    name: Interval (days)
+    description: Run a backup every this many days. 2 = every second day.
+  run_missed_on_start:
+    name: Run missed backups on start
+    description: >-
+      If a scheduled run was missed while the addon was off, run once shortly
+      after the addon starts.
+  keep_recent:
+    name: Keep recent
+    description: Always keep this many of the newest backups.
+  archive_age_days:
+    name: Archive age (days)
+    description: >-
+      Also keep one older "archive" backup closest to this age (e.g. 14 = about
+      two weeks ago).
+  keep_bridge:
+    name: Keep bridge backups
+    description: >-
+      Keep the backups between the recent set and the archive so the archive
+      stays close to the target age. Uses more storage.
+  kdf_n_log2:
+    name: scrypt cost (log2 N)
+    description: >-
+      scrypt cost as a power of two (N = 2^value). Higher is slower and more
+      brute-force resistant. Default 16.
+  chunk_size_kib:
+    name: Chunk size (KiB)
+    description: Streaming encryption chunk size in KiB. Default 64.
+  backup_name_prefix:
+    name: Filename prefix
+    description: Prefix for backup filenames on the server.
+  delete_local_after_upload:
+    name: Delete local copy after upload
+    description: Remove the local encrypted file after a successful upload.
+  compress_supervisor_backup:
+    name: Compress backup
+    description: Ask the Supervisor to gzip the backup before encryption.
+  log_level:
+    name: Log level
+    description: Verbosity of the addon log.

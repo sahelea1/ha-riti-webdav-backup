@@ -1,0 +1,8 @@
+# Runtime dependencies for RitiBackup.
+#
+# In the addon Docker image these are installed from Alpine's prebuilt apk
+# packages (py3-cryptography, py3-aiohttp) for fast, reliable multi-arch builds.
+# This file documents the Python-level requirements for running the app or the
+# standalone decrypt tool outside the addon (e.g. on a recovery workstation).
+cryptography>=41.0
+aiohttp>=3.9
